@@ -1,6 +1,6 @@
 # DietPi TCP forwarding server
 
-Headless migration of `app.py`. Python asyncio TCP listeners, Flask/Waitress LAN dashboard, systemd management. Supports Python 3.9+ (DietPi's actual Python version should be checked with `python3 --version`).
+Headless migration of the original GUI, now archived in `legacy/app.py`. The active entry point is `main.py`. Python asyncio TCP listeners, Flask/Waitress LAN dashboard, systemd management. Supports Python 3.9+ (DietPi's actual Python version should be checked with `python3 --version`).
 
 ## Original behaviour retained
 
@@ -106,3 +106,33 @@ For a forwarding test, connect two clients from **different source IPs** to the 
 - Data port bindings remain `0.0.0.0` by default. The dashboard should bind to the Pi's actual LAN address and use firewall isolation.
 - Per-client `bytes_out` counts bytes accepted by the asyncio transport after `drain`, not remote application acknowledgement.
 - This migration includes concurrency fixes, so under unusual simultaneous-connection races the outcome may differ from the original buggy behaviour while preserving the intended rules.
+
+## Development and tests
+
+Create an isolated environment and install the headless app dependencies:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+```
+
+On DietPi, launch the active app with `python main.py` using the configured environment and the permissions needed to bind its low-numbered ports, or use the systemd service described above. Tests use temporary, unprivileged localhost ports and do not require a Pi or a connected logger.
+
+Python automatically regenerates `__pycache__/` and `.pyc` files. They are not source files and are ignored by Git, along with local virtual environments, test caches, and generated logs.
+
+## Archived desktop GUI
+
+`legacy/app.py` preserves the original standalone Qt GUI for reference and optional use. It is not imported by the headless app or used by its systemd service. Its optional dependency, PySide6, is intentionally excluded from `requirements.txt`.
+
+To run it on a machine with a graphical desktop, create a separate virtual environment, install PySide6, and launch the archived script:
+
+```bash
+python3 -m venv .venv-gui
+. .venv-gui/bin/activate
+python -m pip install PySide6
+python legacy/app.py
+```
+
+The original GUI binds the same TCP ports as the headless app, so stop the headless service before launching it. Low-numbered ports require suitable OS permissions. The GUI is retained as historical source and does not include the migrated backend's reliability changes.
