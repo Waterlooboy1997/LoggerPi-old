@@ -136,3 +136,39 @@ python legacy/app.py
 ```
 
 The original GUI binds the same TCP ports as the headless app, so stop the headless service before launching it. Low-numbered ports require suitable OS permissions. The GUI is retained as historical source and does not include the migrated backend's reliability changes.
+
+## Site names
+
+The **Site** column identifies the configured site for each callback port. Select a port,
+edit **Site name** in its details, then choose **Save** (or **Cancel** to discard edits).
+An empty name clears the label. Names are searchable alongside port numbers and IPs.
+Saving changes only the label; connected clients and forwarding continue normally.
+Any trusted dashboard user can edit names using the existing control-token protection.
+
+`sites.json` contains the initial assignments and optional PakBus metadata. Callback
+ports determine labels; for example, HUL uses callback port 310 and PakBus 305.
+UMR remains unassigned until its callback port is confirmed.
+
+For a direct `python main.py` launch, the app reads and updates `sites.json` beside
+its script. Set `SITE_CONFIG_PATH` to use another path; its parent directory must
+exist and be writable. If that file is missing, the bundled seed is copied there.
+Invalid configuration stops startup with an error and is never automatically replaced.
+
+The supplied systemd unit creates `/var/lib/tcp-server` with `StateDirectory` and
+sets `SITE_CONFIG_PATH=/var/lib/tcp-server/sites.json`, allowing saves under
+`ProtectSystem=strict`. Existing saved files are retained on restart and upgrade.
+When upgrading, copy the updated unit to `/etc/systemd/system/tcp-server.service`,
+run `sudo systemctl daemon-reload`, then `sudo systemctl restart tcp-server`.
+An explicit `SITE_CONFIG_PATH` in `/etc/default/tcp-server` overrides the unit default;
+custom locations also need an appropriate writable-path service override.
+
+For manual edits, stop the service, edit the active JSON file, then restart it.
+The format is a list of objects with `site`, `callback_port` (integer or null), and
+`pakbus` (integer or null). Port assignments must be unique. Browser renames preserve
+PakBus values and other metadata. Names are trimmed, limited to 100 characters,
+and cannot contain control characters. Changes persist across browser and server restarts.
+
+Developer checks: `python -m unittest discover -s tests -v` covers forwarding,
+site persistence, validation, and API access controls. With Node.js available,
+`node tests/test_dashboard.js` checks site rendering, filtering, and editor behavior
+using a lightweight DOM stub.

@@ -9,7 +9,7 @@ from waitress import create_server
 
 logger = logging.getLogger('dashboard')
 
-def create_app(server, state, monitor, trusted_networks):
+def create_app(server, state, monitor, trusted_networks, sites):
     app = Flask(__name__)
     networks = [ipaddress.ip_network(x, strict=False) for x in trusted_networks]
     token = secrets.token_urlsafe(32)
@@ -48,6 +48,9 @@ def create_app(server, state, monitor, trusted_networks):
     @app.get('/api/status')
     def status():
         ports = state.snapshot()
+        names = sites.names()
+        for port in ports:
+            port['site'] = names.get(port['port'], '')
         counts = [len(p['clients']) for p in ports]
         return jsonify({'ports': ports, 'summary': {'total': len(ports), 'empty': counts.count(0),
                        'one': counts.count(1), 'two': counts.count(2),
@@ -62,7 +65,24 @@ def create_app(server, state, monitor, trusted_networks):
 
     @app.get('/api/ports/<int:port>')
     def detail(port):
-        return jsonify(state.snapshot(validated_port(port)))
+        result = state.snapshot(validated_port(port))
+        result['site'] = sites.names().get(port, '')
+        return jsonify(result)
+
+    @app.post('/api/ports/<int:port>/site')
+    def update_site(port):
+        validated_port(port)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or 'site' not in payload:
+            return jsonify({'error': 'Expected a JSON object with a site string'}), 400
+        try:
+            name = sites.set_site(port, payload['site'])
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except OSError:
+            logger.exception('Could not save site configuration')
+            return jsonify({'error': 'Could not save site configuration; check file permissions and disk space'}), 500
+        return jsonify({'ok': True, 'port': port, 'site': name})
 
     @app.get('/api/events')
     def events():
