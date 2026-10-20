@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const token=document.querySelector('meta[name="control-token"]').content;
-let selected=300, lastId=0, logPort=null, busy=false, latestPorts=[];
+let selected=300, lastId=0, logPort=null, busy=false, latestPorts=[], editorPort=null, siteDirty=false, siteSaving=false, siteRevision=0;
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const duration=iso=>{if(!iso)return '—';const s=Math.max(0,Math.floor((Date.now()-Date.parse(iso))/1000));return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor(s%3600/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`};
 const bytes=n=>n==null?'—':Number(n).toLocaleString()+' B';
@@ -14,12 +14,30 @@ latestPorts=data.ports;renderPorts();
 const p=data.ports.find(x=>x.port===selected);if(p)renderDetail(p);
 }
 function renderPorts(){
-const search=$('search').value.trim().toLowerCase();$('ports').innerHTML=latestPorts.filter(p=>(!$('connected-only').checked||p.clients.length>=1)&&(!search||String(p.port).includes(search)||p.clients.some(c=>c.peer.toLowerCase().includes(search)))).map(p=>{const n=p.clients.length;const cls=p.reject_count||p.duplicate_ip_count?'warning':n===0?'empty':n===1?'one':'two';return `<tr data-port="${p.port}" class="${cls} ${p.port===selected?'selected':''}"><td>${p.port}</td><td>${p.listening?'Yes':'No'}</td><td>${n}/2</td><td>${esc(p.clients[0]?.peer||'—')}</td><td>${duration(p.clients[0]?.connected_at)}</td><td>${esc(p.clients[1]?.peer||'—')}</td><td>${duration(p.clients[1]?.connected_at)}</td><td>${p.reject_count}</td><td>${p.duplicate_ip_count}</td></tr>`}).join('')||'<tr><td colspan="9" class="no-ports">No ports match the filters</td></tr>';
-$('ports').querySelectorAll('tr[data-port]').forEach(row=>row.addEventListener('click',()=>{selected=Number(row.dataset.port);lastId=0;$('logs').replaceChildren();refresh().catch(console.error)}));
+const search=$('search').value.trim().toLowerCase();$('ports').innerHTML=latestPorts.filter(p=>(!$('connected-only').checked||p.clients.length>=1)&&(!search||String(p.port).includes(search)||String(p.site||'').toLowerCase().includes(search)||p.clients.some(c=>c.peer.toLowerCase().includes(search)))).map(p=>{const n=p.clients.length;const cls=p.reject_count||p.duplicate_ip_count?'warning':n===0?'empty':n===1?'one':'two';return `<tr data-port="${p.port}" class="${cls} ${p.port===selected?'selected':''}"><td>${p.port}</td><td>${esc(p.site||'—')}</td><td>${p.listening?'Yes':'No'}</td><td>${n}/2</td><td>${esc(p.clients[0]?.peer||'—')}</td><td>${duration(p.clients[0]?.connected_at)}</td><td>${esc(p.clients[1]?.peer||'—')}</td><td>${duration(p.clients[1]?.connected_at)}</td><td>${p.reject_count}</td><td>${p.duplicate_ip_count}</td></tr>`}).join('')||'<tr><td colspan="10" class="no-ports">No ports match the filters</td></tr>';
+$('ports').querySelectorAll('tr[data-port]').forEach(row=>row.addEventListener('click',()=>{if(siteSaving)return;selected=Number(row.dataset.port);lastId=0;$('logs').replaceChildren();refresh().catch(console.error)}));
 }
 
-function renderDetail(p){$('detail-title').textContent=`Port ${p.port} · ${p.listening?'Listening':'Offline'}`;let html=`<div class="muted">Clients: ${p.clients.length}/2 · Rejections: ${p.reject_count} · Duplicate IPs: ${p.duplicate_ip_count}</div>`;if(!p.clients.length)html+='<p>No clients connected</p>';p.clients.forEach((c,i)=>{html+=`<div class="client"><strong>Client ${i+1}: ${esc(c.peer)}</strong><div>Connected: ${duration(c.connected_at)}</div><div>Last activity: ${duration(c.last_activity)} ago</div><div>Received: ${bytes(c.bytes_in)}</div><div>Forwarded: ${bytes(c.bytes_out)}</div></div>`});html+=`<p>Last event: ${esc(p.last_event||'—')}</p>`;$('detail').innerHTML=html}
+function renderDetail(p){
+if(editorPort!==p.port){editorPort=p.port;siteDirty=false;$('site-message').textContent=''}
+if(!siteDirty&&!siteSaving)$('site-name').value=p.site||'';
+$('detail-title').textContent=`Port ${p.port} · ${p.listening?'Listening':'Offline'}`;let html=`<div class="muted">Clients: ${p.clients.length}/2 · Rejections: ${p.reject_count} · Duplicate IPs: ${p.duplicate_ip_count}</div>`;if(!p.clients.length)html+='<p>No clients connected</p>';p.clients.forEach((c,i)=>{html+=`<div class="client"><strong>Client ${i+1}: ${esc(c.peer)}</strong><div>Connected: ${duration(c.connected_at)}</div><div>Last activity: ${duration(c.last_activity)} ago</div><div>Received: ${bytes(c.bytes_in)}</div><div>Forwarded: ${bytes(c.bytes_out)}</div></div>`});html+=`<p>Last event: ${esc(p.last_event||'—')}</p>`;$('detail').innerHTML=html}
 async function refreshLogs(){const port=$('all-ports').checked?null:selected;if(logPort!==port){logPort=port;lastId=0;$('logs').replaceChildren()};const qs=new URLSearchParams({since:String(lastId),limit:'150'});if(port!==null)qs.set('port',String(port));const data=await json('/api/events?'+qs);const box=$('logs');for(const e of data.events){lastId=Math.max(lastId,e.id);const div=document.createElement('div');div.className='log-line '+(e.level==='WARNING'?'log-warning':e.level==='ERROR'?'log-error':'');div.textContent=`${new Date(e.time).toLocaleString()} [${e.level}] [${e.port??'system'}] ${e.message}`;box.appendChild(div)}while(box.children.length>500)box.firstChild.remove();if($('autoscroll').checked)box.scrollTop=box.scrollHeight}
-async function refresh(){if(busy)return;busy=true;try{const data=await json('/api/status');renderStatus(data);await refreshLogs();$('connection').textContent='Connected · '+new Date().toLocaleTimeString()}catch(e){$('connection').textContent='Disconnected / error';console.error(e)}finally{busy=false}}
+async function refresh(){if(busy)return;busy=true;try{const revision=siteRevision;const data=await json('/api/status');if(revision===siteRevision)renderStatus(data);await refreshLogs();$('connection').textContent='Connected · '+new Date().toLocaleTimeString()}catch(e){$('connection').textContent='Disconnected / error';console.error(e)}finally{busy=false}}
 async function action(name){const message=name==='reset'?`Reset port ${selected} and disconnect its clients?`:name==='disconnect'?`Disconnect all clients on port ${selected}?`:`Clear event history for port ${selected}?`;if(!confirm(message))return;try{await json(`/api/ports/${selected}/${name}`,{method:'POST',headers:{'X-Control-Token':token}});if(name==='clear'){lastId=0;$('logs').replaceChildren()}await refresh()}catch(e){alert('Operation failed: '+e.message)}}
 for(const a of ['reset','disconnect','clear'])$(a).addEventListener('click',()=>action(a));$('all-ports').addEventListener('change',()=>{logPort=undefined;refreshLogs().catch(console.error)});$('search').addEventListener('input',renderPorts);$('connected-only').addEventListener('change',renderPorts);refresh();setInterval(refresh,1000);
+
+$('site-name').addEventListener('input',()=>{siteDirty=true;$('site-message').textContent=''});
+$('site-cancel').addEventListener('click',()=>{if(siteSaving)return;siteDirty=false;const p=latestPorts.find(p=>p.port===selected);if(p)$('site-name').value=p.site||'';$('site-message').textContent=''});
+$('site-form').addEventListener('submit',async event=>{
+event.preventDefault();if(siteSaving||editorPort===null)return;
+const port=editorPort;siteSaving=true;
+for(const id of ['site-name','site-save','site-cancel'])$(id).disabled=true;
+$('site-message').textContent='Saving…';
+try{
+const result=await json(`/api/ports/${port}/site`,{method:'POST',headers:{'X-Control-Token':token,'Content-Type':'application/json'},body:JSON.stringify({site:$('site-name').value})});
+siteRevision++;const p=latestPorts.find(p=>p.port===port);if(p)p.site=result.site;
+$('site-name').value=result.site;siteDirty=false;$('site-message').textContent='Site saved.';renderPorts();
+}catch(error){$('site-message').textContent='Save failed: '+error.message}
+finally{siteSaving=false;for(const id of ['site-name','site-save','site-cancel'])$(id).disabled=false}
+});

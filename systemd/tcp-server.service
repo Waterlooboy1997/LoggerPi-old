@@ -8,6 +8,8 @@ Type=simple
 User=tcpserver
 Group=tcpserver
 WorkingDirectory=/opt/tcp-server
+StateDirectory=tcp-server
+Environment=SITE_CONFIG_PATH=/var/lib/tcp-server/sites.json
 EnvironmentFile=/etc/default/tcp-server
 ExecStart=/opt/tcp-server/.venv/bin/python -u /opt/tcp-server/main.py
 Restart=on-failure
