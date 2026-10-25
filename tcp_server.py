@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import logging
+import time
 from datetime import timedelta
 from shared_state import ClientInfo, now
 from config import READ_CHUNK_SIZE, LOG_CHUNK_EVENTS, LOG_PAYLOADS
@@ -91,10 +92,12 @@ class TcpDashboardServer:
                 data = await reader.read(READ_CHUNK_SIZE)
                 if not data:
                     break
+                read_at = time.time()
                 self.state.traffic(port, writer, received=len(data))
                 if LOG_CHUNK_EVENTS:
                     self.event(port, 'INFO', f'Data received on port {port} from {peer} -> {data.decode(errors="ignore").strip()}' if LOG_PAYLOADS else f'Received {len(data)} bytes on port {port} from {peer}')
                 forwarded = False
+                recipients = []
                 async with self.forward_locks[port]:
                     for other in list(self.clients[port]):
                         if writer not in self.clients[port] or other is writer or other not in self.clients[port] or other in self.closing:
@@ -104,11 +107,17 @@ class TcpDashboardServer:
                             await asyncio.wait_for(other.drain(), timeout=10)
                             self.state.traffic(port, other, sent=len(data))
                             forwarded = True
+                            recipients.append(self.peer(other))
                             if LOG_CHUNK_EVENTS:
                                 self.event(port, 'INFO', f'Forwarded {len(data)} bytes from {peer} to {self.peer(other)} on port {port}')
                         except Exception as exc:
                             self.event(port, 'ERROR', f'Forwarding error on port {port} to {self.peer(other)}: {exc}')
                             await self.disconnect_client(port, other, 'Forwarding error')
+                try:
+                    # Read-only observation for the dashboard's traffic monitor.
+                    self.state.tap.chunk(port, writer, peer, data, recipients, read_at)
+                except Exception:
+                    pass
                 if not forwarded and LOG_CHUNK_EVENTS:
                     self.event(port, 'INFO', f'No other client connected on port {port}. Data not forwarded.')
         except asyncio.CancelledError:

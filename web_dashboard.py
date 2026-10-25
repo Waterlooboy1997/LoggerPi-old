@@ -4,7 +4,7 @@ import ipaddress
 import logging
 import secrets
 import threading
-from flask import Flask, jsonify, render_template, request, abort
+from flask import Flask, Response, jsonify, render_template, request, abort
 from waitress import create_server
 
 logger = logging.getLogger('dashboard')
@@ -94,6 +94,42 @@ def create_app(server, state, monitor, trusted_networks, sites):
         except ValueError:
             abort(400)
         return jsonify({'events': state.get_events(port, since, limit)})
+
+    @app.get('/api/ports/<int:port>/tap')
+    def tap_read(port):
+        validated_port(port)
+        try:
+            since = max(0, int(request.args.get('since', 0)))
+            limit = max(1, min(1000, int(request.args.get('limit', 500))))
+        except ValueError:
+            abort(400)
+        return jsonify(state.tap.read(port, since, limit))
+
+    @app.get('/api/ports/<int:port>/tap.txt')
+    def tap_text(port):
+        validated_port(port)
+        response = Response(state.tap.as_text(port), mimetype='text/plain')
+        response.headers['Content-Disposition'] = f'attachment; filename=port-{port}-capture.txt'
+        return response
+
+    @app.post('/api/ports/<int:port>/tap/<action>')
+    def tap_control(port, action):
+        validated_port(port)
+        if action == 'start':
+            payload = request.get_json(silent=True) or {}
+            try:
+                minutes = state.tap.start(port, payload.get('minutes', 10))
+            except (ValueError, TypeError) as exc:
+                return jsonify({'error': str(exc)}), 400
+            state.event(port, 'INFO', f'Traffic capture started for {minutes} minutes by {request.remote_addr}')
+        elif action == 'stop':
+            state.tap.stop(port)
+            state.event(port, 'INFO', f'Traffic capture stopped by {request.remote_addr}')
+        elif action == 'clear':
+            state.tap.clear(port)
+        else:
+            abort(404)
+        return jsonify({'ok': True, 'port': port, 'action': action})
 
     @app.post('/api/ports/<int:port>/<action>')
     def control(port, action):

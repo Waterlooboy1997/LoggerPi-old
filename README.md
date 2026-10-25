@@ -172,3 +172,33 @@ Developer checks: `python -m unittest discover -s tests -v` covers forwarding,
 site persistence, validation, and API access controls. With Node.js available,
 `node tests/test_dashboard.js` checks site rendering, filtering, and editor behavior
 using a lightweight DOM stub.
+
+## Traffic monitor
+
+The dashboard's **Traffic monitor** panel shows what crosses the selected data port, live.
+Choose a port, pick a duration, and press **Start capture**. Each chunk read from a client is
+listed with its time, the gap since the previous chunk, source peer, the peers it was forwarded
+to (or `NOT FORWARDED` when no other client is connected), length, hex and ASCII. Connects,
+disconnects and rejects appear in the same timeline.
+
+PakBus frames are decoded where possible (sync `0xBD`, `0xBC` quoting, header, message type,
+transaction number, signature check) following PyCampbellCR1000's `pakbus.py`. Decoding is
+informational; non-PakBus data is simply shown as bytes. Runs of three or more `0xBD` are
+reported as an attention/sync burst.
+
+Capture is **off by default**, per port, stops after the chosen time (maximum 60 minutes), is
+limited to 8 ports at a time and keeps the newest 3000 entries per port (512 bytes stored per
+chunk; the true length is always shown). The tap only copies data after it has been read: it
+never writes to a socket, and any failure inside it is swallowed so forwarding is unaffected.
+**Download .txt** saves the capture as plain text. Captured packets can contain PakBus security
+codes (for example in clock and file commands), so treat downloads as sensitive.
+
+API: `GET /api/ports/<port>/tap?since=<id>`, `GET /api/ports/<port>/tap.txt`, and
+`POST /api/ports/<port>/tap/{start,stop,clear}` (control token required, like other actions).
+
+## Updating the Pi
+
+From the app folder on the Pi: `./deploy/update.sh`. It fetches GitHub, fast-forwards only, installs
+dependencies if `requirements.txt` changed, runs the tests, and only then restarts `tcp-server`.
+A failing test leaves the running service untouched. A restart disconnects every client, so the
+script refuses to run during minutes :00-:09 unless given `--force`.

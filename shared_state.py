@@ -3,6 +3,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from config import MAX_EVENTS_PER_PORT
+from tap import TrafficTap
 
 def now():
     return datetime.now(timezone.utc)
@@ -40,6 +41,7 @@ class SharedState:
         self.sequence = 0
         self.total_in = 0
         self.total_out = 0
+        self.tap = TrafficTap(ports)
 
     def event(self, port, level, message):
         with self.lock:
@@ -52,6 +54,7 @@ class SharedState:
                 state.recent_events.append(entry)
                 state.last_event = message
                 state.last_event_time = timestamp
+        self.tap.event(port, level, message)
 
     def listening(self, port, value):
         with self.lock:
@@ -70,6 +73,7 @@ class SharedState:
         with self.lock:
             state = self.ports[port]
             state.clients = [c for c in state.clients if c.writer is not writer]
+        self.tap.forget(port, writer)
 
     def traffic(self, port, writer, received=0, sent=0):
         with self.lock:
