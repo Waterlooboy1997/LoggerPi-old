@@ -195,3 +195,10 @@ codes (for example in clock and file commands), so treat downloads as sensitive.
 
 API: `GET /api/ports/<port>/tap?since=<id>`, `GET /api/ports/<port>/tap.txt`, and
 `POST /api/ports/<port>/tap/{start,stop,clear}` (control token required, like other actions).
+
+## Updating the Pi
+
+From the app folder on the Pi: `./deploy/update.sh`. It fetches GitHub, fast-forwards only, installs
+dependencies if `requirements.txt` changed, runs the tests, and only then restarts `tcp-server`.
+A failing test leaves the running service untouched. A restart disconnects every client, so the
+script refuses to run during minutes :00-:09 unless given `--force`.
