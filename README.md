@@ -190,7 +190,8 @@ disconnects and rejects appear in the same timeline.
 PakBus frames are decoded where possible (sync `0xBD`, `0xBC` quoting, header, message type,
 transaction number, signature check) following PyCampbellCR1000's `pakbus.py`. Decoding is
 informational; non-PakBus data is simply shown as bytes. Runs of three or more `0xBD` are
-reported as an attention/sync burst.
+reported as an attention/sync burst. Six-byte link-control packets (ring, ready,
+finished, off-line) are shown as `Link <state>`, and every header shows its link state.
 
 Capture is **off by default**, per port, stops after the chosen time (maximum 60 minutes), is
 limited to 8 ports at a time and keeps the newest 3000 entries per port (512 bytes stored per

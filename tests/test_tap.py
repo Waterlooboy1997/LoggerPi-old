@@ -69,6 +69,31 @@ class DecoderTests(unittest.TestCase):
         self.assertIn('not a PakBus', f['summary'])
 
 
+class CapturedLoggerNetSessionTests(unittest.TestCase):
+    """Frames from real port 358 / 353 captures: LoggerNet (node 4094) talking to CR350 loggers."""
+
+    def test_link_control_packets(self):
+        ring = frames(bytes.fromhex('bd91660ffe9dcfbd'))[0]
+        self.assertTrue(ring['signature_ok'])
+        self.assertEqual((ring['link_state'], ring['src_phys'], ring['dst_phys']), ('ring', 4094, 358))
+        self.assertEqual(ring['summary'], 'Link ring, phys 4094→358 (link control)')
+        self.assertIn('Link ready, phys 358→4094', frames(bytes.fromhex('bdaffe01668a22bd'))[0]['summary'])
+        self.assertIn('Link off-line, phys 358→4094', frames(bytes.fromhex('bd8ffe016628a1bd'))[0]['summary'])
+
+    def test_link_control_bad_signature(self):
+        self.assertIn('BAD SIGNATURE', frames(bytes.fromhex('bd91660ffe9dcebd'))[0]['summary'])
+
+    def test_header_only_shows_link_state(self):
+        bye = frames(bytes.fromhex('bdb1663ffe01660ffe2dfebd'))[0]
+        self.assertTrue(bye['signature_ok'])
+        self.assertEqual(bye['summary'], 'Link finished, node 4094→358, header only')
+
+    def test_table_definitions_request(self):
+        f = frames(bytes.fromhex('bda1616ffe11610ffe1d5b00002e5444465300000000000002aae409bd'))[0]
+        self.assertTrue(f['signature_ok'])
+        self.assertIn('File upload command, node 4094→353', f['summary'])
+
+
 class RelayTapTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.state = SharedState([0])
