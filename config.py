@@ -31,8 +31,8 @@ def parse_switch(name, value, default):
 
 
 # PakBus logger check: the Pi opens a session the way LoggerNet does (ring, Hello, finished)
-# with a client that is alone and silent on its port. A reply from the port's PakBus address
-# in sites.json proves the client is that logger and is alive.
+# with a client that is alone and silent on its port, addressed to the port's pakbus in
+# sites.json. Any valid answer, from whatever node, shows the client is a logger and alive.
 PAKBUS_PROBE = parse_switch('PAKBUS_PROBE', os.getenv('PAKBUS_PROBE'), 'on')
 PROBE_NODE = parse_positive_int('PROBE_NODE', os.getenv('PROBE_NODE'), 4094)
 PROBE_INTERVAL = parse_positive_int('PROBE_INTERVAL', os.getenv('PROBE_INTERVAL'), 300)

@@ -21,7 +21,7 @@ class ClientInfo:
     last_activity: datetime
     bytes_in: int = 0
     bytes_out: int = 0
-    role: object = None          # 'logger' once it answers the PakBus check, 'asker' for LoggerNet etc.
+    role: object = None          # 'logger' once it answers the PakBus check
     role_detail: str = ''
     checked_at: object = None    # last PakBus answer from a logger
 

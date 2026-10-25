@@ -104,7 +104,7 @@ For a forwarding test, connect two clients from **different source IPs** to the 
 - **RESET command gets no reply:** command source IP not trusted, firewall restriction or timeout. The command port intentionally does not authenticate beyond IP restriction.
 - **One client immediately disconnects:** both clients may share the same public/NAT IP; this is the original duplicate-IP policy.
 - **`did not answer 3 PakBus checks; disconnecting dead connection`:** a confirmed logger stopped answering (usually a modem that lost coverage or power) and its slot was freed.
-- **`did not answer a PakBus Hello to node N`:** the client never answered as the port's PakBus address. It stays connected and is not checked again; check `pakbus` for that port in `sites.json`.
+- **`did not answer a PakBus Hello sent to node N`:** the client never answered the check. It stays connected and is not checked again. The Hello is addressed to the port's `pakbus` in `sites.json`, so check that value.
 - **CPU temperature N/A:** DietPi kernel may not expose `/sys/class/thermal/thermal_zone0/temp`.
 
 ## Notes
@@ -221,16 +221,17 @@ The relay cannot tell a logger from LoggerNet by IP, so it asks in PakBus. When 
 3. `Link finished`. The logger replies `Link off-line`.
 
 These packets are byte-for-byte what LoggerNet sent in real captures (checked by `tests/test_probe.py`).
-A reply from the expected address proves the client is **that logger** and that it is **alive**. The
-dashboard then shows it as `(logger)`, with how long ago it last answered, and the event log records
-`logger confirmed` once. Traffic the logger sends on its own (such as its Hello to node 4094) also counts
-as an answer. While it stays alone and idle it is checked again every `PROBE_INTERVAL` seconds (5 minutes
+The packets are addressed to the port's `pakbus` in `sites.json`; that is the only thing the value is
+used for. Any valid answer to the Pi's Hello shows the client is **a logger** and that it is **alive**.
+The node that answered is **not** checked against anything, only reported: the dashboard shows
+`(logger)`, the node that answered, and how long ago it last answered, and the event log records
+`logger confirmed` once. Any bytes the client sends also count as alive. While it stays alone and idle it is checked again every `PROBE_INTERVAL` seconds (5 minutes
 by default). After 3 failed checks, 30 seconds apart, a confirmed logger is disconnected as dead.
 
 It cannot interfere with a collection:
 
 - It never runs while another client is connected to the port, and never while the client is sending.
-- A client that sends PakBus from any other node (LoggerNet 4094, the scheduler 2050) is marked `(asker)` and never checked.
+- A client that is sending (LoggerNet or the scheduler mid-session) is never checked; the 15 s of silence restart with every byte.
 - While the Pi waits for a reply (under a second normally, at most about 10 s), new connections to that
   port wait to be admitted, so a PC or scheduler that connects mid-check never receives the logger's answer.
 - Hello reads and changes nothing on the logger and needs no security code.

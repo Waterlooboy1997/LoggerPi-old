@@ -39,14 +39,13 @@ assert.doesNotMatch(element('ports').innerHTML, /<script>/);
 const template = fs.readFileSync(path.join(root,'templates/dashboard.html'),'utf8');
 assert.match(template, /<th>Port<\/th><th>Site<\/th><th>Listening<\/th>/);
 // Client roles from the PakBus check.
-port.clients=[{peer:'120.157.206.45:1261',role:'logger',role_detail:'PakBus node 353',checked_at:new Date(Date.now()-65000).toISOString()},{peer:'192.168.1.1:5970',role:'asker',role_detail:'PakBus node 4094'}];
+port.clients=[{peer:'120.157.206.45:1261',role:'logger',role_detail:'PakBus node 353',checked_at:new Date(Date.now()-65000).toISOString()}];
 run('renderPorts(); renderDetail(port)');
 assert.match(element('ports').innerHTML, /120\.157\.206\.45:1261 \(logger\)<\/td>/);
-assert.match(element('ports').innerHTML, /192\.168\.1\.1:5970 \(asker\)/);
 assert.match(element('detail').innerHTML, /Role: logger · PakBus node 353 · answered 00:01:0\d ago/);
-port.clients=[{peer:'10.0.0.9:1',role:null,role_detail:'did not answer PakBus node 353'}];
+port.clients=[{peer:'10.0.0.9:1',role:null,role_detail:'did not answer a PakBus Hello sent to node 353'}];
 run('renderDetail(port)');
-assert.match(element('detail').innerHTML, /Role: unknown · did not answer PakBus node 353/);
+assert.match(element('detail').innerHTML, /Role: unknown · did not answer a PakBus Hello sent to node 353/);
 port.clients=[{peer:'10.0.0.9:1',role:null,role_detail:''}];
 run('renderDetail(port)');
 assert.doesNotMatch(element('detail').innerHTML, /Role:/);

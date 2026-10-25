@@ -84,7 +84,7 @@ class FakeLogger:
 
 
 class ProbeCase(unittest.IsolatedAsyncioTestCase):
-    options = {'expected_pakbus': lambda port: LOGGER, 'probe_node': PI, 'probe_first': .1,
+    options = {'pakbus_address': lambda port: LOGGER, 'probe_node': PI, 'probe_first': .1,
                'probe_interval': .4, 'probe_retry': .1, 'probe_timeout': .2, 'probe_attempts': 3}
 
     async def asyncSetUp(self):
@@ -132,7 +132,7 @@ class ProbeTests(ProbeCase):
         client = self.clients()['127.0.0.2']
         self.assertEqual((client['role'], client['role_detail']), ('logger', 'PakBus node 353'))
         self.assertIsNotNone(client['checked_at'])
-        self.assertTrue(any('answered as PakBus node 353: logger confirmed' in m for m in self.messages()))
+        self.assertTrue(any('answered the PakBus check (node 353): logger confirmed' in m for m in self.messages()))
 
     async def test_logger_that_stops_answering_is_disconnected(self):
         fake = await self.logger()
@@ -157,11 +157,20 @@ class ProbeTests(ProbeCase):
         await self.assert_receives_nothing(a)
         await self.assert_receives_nothing(b, .1)
 
-    async def test_loggernet_or_scheduler_is_never_checked(self):
+    async def test_answer_from_any_node_counts(self):
+        # No check of the logger's ID: a different node answering the Hello is still a logger.
+        fake = FakeLogger(*await self.connect('127.0.0.2'), node=999)
+        self.fakes.append(fake)
+        await asyncio.sleep(.35)
+        client = self.clients()['127.0.0.2']
+        self.assertEqual((client['role'], client['role_detail']), ('logger', 'PakBus node 999'))
+
+    async def test_client_that_keeps_sending_is_not_checked(self):
         r, w = await self.connect('127.0.0.2')
-        w.write(SCHEDULER_HELLO); await w.drain()     # PakBus node 2050, not the port's logger
-        await self.assert_receives_nothing(r)
-        self.assertEqual(self.clients()['127.0.0.2']['role'], 'asker')
+        for _ in range(12):                           # e.g. LoggerNet or the scheduler mid-session
+            w.write(SCHEDULER_HELLO); await w.drain()
+            await asyncio.sleep(.05)
+        await self.assert_receives_nothing(r, .05)
 
     async def test_client_arriving_mid_check_never_sees_the_logger_reply(self):
         fake = await self.logger()
@@ -175,18 +184,18 @@ class ProbeTests(ProbeCase):
         self.assertEqual(await asyncio.wait_for(pc.readexactly(4), 2), b'data')   # only real traffic
 
 
-class PassiveConfirmTests(ProbeCase):
+class OwnTrafficTests(ProbeCase):
     options = {**ProbeCase.options, 'probe_first': 30}
 
-    async def test_logger_own_traffic_confirms_it_without_a_check(self):
+    async def test_only_an_answer_to_the_check_marks_a_logger(self):
         r, w = await self.connect('127.0.0.2')
         w.write(LOGGER_OWN_HELLO); await w.drain(); await asyncio.sleep(.05)
-        self.assertEqual(self.clients()['127.0.0.2']['role'], 'logger')
+        self.assertIsNone(self.clients()['127.0.0.2']['role'])
         await self.assert_receives_nothing(r, .2)
 
 
 class ProbeOffTests(ProbeCase):
-    options = {'expected_pakbus': lambda port: LOGGER}
+    options = {'pakbus_address': lambda port: LOGGER}
 
     async def test_off_sends_nothing(self):
         r, _ = await self.connect('127.0.0.2')
@@ -195,7 +204,7 @@ class ProbeOffTests(ProbeCase):
 
 
 class NoAddressTests(ProbeCase):
-    options = {**ProbeCase.options, 'expected_pakbus': lambda port: None}
+    options = {**ProbeCase.options, 'pakbus_address': lambda port: None}
 
     async def test_port_without_pakbus_address_is_not_checked(self):
         r, _ = await self.connect('127.0.0.2')

@@ -11,7 +11,7 @@ from web_dashboard import create_app, DashboardThread
 async def main():
     sites = SiteConfig()
     state = SharedState(PORTS)
-    backend = TcpDashboardServer(HOST, PORTS, COMMAND_PORT, state, TRUSTED_NETWORKS, expected_pakbus=sites.pakbus,
+    backend = TcpDashboardServer(HOST, PORTS, COMMAND_PORT, state, TRUSTED_NETWORKS, pakbus_address=sites.pakbus,
                                  probe_node=PROBE_NODE if PAKBUS_PROBE else None, probe_interval=PROBE_INTERVAL)
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()

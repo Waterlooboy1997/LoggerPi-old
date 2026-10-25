@@ -32,12 +32,11 @@ def is_dead_peer(exc):
 class Probe:
     """PakBus check state for one client."""
 
-    def __init__(self, expected):
-        self.expected = expected             # logger PakBus address from sites.json
+    def __init__(self, address):
+        self.address = address               # where to send the check: the port's pakbus in sites.json
         self.decoder = StreamDecoder()
         self.last_rx = self.last_check = time.monotonic()
-        self.confirmed = False               # answered as the expected logger at least once
-        self.asker = False                   # sent frames from another node (LoggerNet, scheduler)
+        self.confirmed = False               # answered the check at least once
         self.waiting = None                  # (kind, future) while a reply is expected
         self.tran = random.randint(1, 255)
         self.task = None
@@ -46,11 +45,11 @@ class Probe:
 class TcpDashboardServer:
     def __init__(self, host, ports, command_port, state, trusted_networks,
                  keepalive=(KEEPALIVE_IDLE, KEEPALIVE_INTERVAL, KEEPALIVE_COUNT) if KEEPALIVE else None,
-                 expected_pakbus=None, probe_node=None, probe_first=15, probe_interval=300,
+                 pakbus_address=None, probe_node=None, probe_first=15, probe_interval=300,
                  probe_retry=30, probe_timeout=4, probe_attempts=3):
         self.host, self.ports, self.command_port, self.state = host, ports, command_port, state
         self.keepalive = keepalive
-        self.expected_pakbus = expected_pakbus or (lambda port: None)
+        self.pakbus_address = pakbus_address or (lambda port: None)
         self.probe_node = probe_node         # None disables the PakBus check
         self.probe_first, self.probe_interval, self.probe_retry = probe_first, probe_interval, probe_retry
         self.probe_timeout, self.probe_attempts = probe_timeout, probe_attempts
@@ -196,8 +195,8 @@ class TcpDashboardServer:
 
     # -- PakBus logger check ------------------------------------------------------------------
     # The Pi opens a session exactly as LoggerNet does (ring, Hello as node 4094, finished) with
-    # a client that is alone and silent on its port. A reply from the port's expected PakBus
-    # address proves that client is the logger and that it is alive. It never runs while
+    # a client that is alone and silent on its port. Any valid answer to the Pi's Hello, from
+    # whatever node, shows that client is a logger and that it is alive. It never runs while
     # another client is connected, and it holds the port's admission lock while waiting for a
     # reply so a client arriving mid-check cannot receive the logger's answer.
 
@@ -205,12 +204,12 @@ class TcpDashboardServer:
         if self.probe_node is None:
             return
         try:
-            expected = self.expected_pakbus(port)
+            address = self.pakbus_address(port)
         except Exception:
-            expected = None
-        if expected is None:
+            address = None
+        if address is None:                  # nowhere to send the Hello
             return
-        probe = self.probes[writer] = Probe(expected)
+        probe = self.probes[writer] = Probe(address)
         probe.task = self._track(self._probe_loop(port, writer, peer, probe))
 
     def _probe_observe(self, port, writer, peer, data):
@@ -219,39 +218,33 @@ class TcpDashboardServer:
         try:
             probe.last_rx = time.monotonic()
             for kind, body in probe.decoder.feed(data):
-                if kind != 'frame':
+                if kind != 'frame' or not probe.waiting:
                     continue
                 info = decode_frame(body)
-                if not info.get('signature_ok'):
+                kind_wanted, future = probe.waiting
+                # Only replies to the Pi's own packets count; the sender's node is not checked.
+                to_us = info.get('dst_node', info.get('dst_phys')) == self.probe_node
+                if not info.get('signature_ok') or not to_us or future.done():
                     continue
-                source = info.get('src_node', info.get('src_phys'))
-                if source != probe.expected:
-                    if not probe.asker and source is not None:
-                        probe.asker = True
-                        self.state.set_role(port, writer, 'asker', f'PakBus node {source}')
-                    continue
-                if probe.waiting:
-                    kind_wanted, future = probe.waiting
-                    to_us = info.get('dst_node', info.get('dst_phys')) == self.probe_node
-                    if to_us and not future.done() and (
-                            (kind_wanted == 'ready' and 'msg_type' not in info and info.get('link_state') == 'ready') or
-                            (kind_wanted == 'hello' and info.get('msg_type') == pakbus.HELLO_RESPONSE and info.get('tran') == probe.tran) or
-                            (kind_wanted == 'offline' and 'msg_type' not in info)):
-                        future.set_result(True)
-                self._logger_answered(port, writer, peer, probe)
+                if kind_wanted == 'hello' and info.get('msg_type') == pakbus.HELLO_RESPONSE and info.get('tran') == probe.tran:
+                    future.set_result(True)
+                    self._logger_answered(port, writer, peer, probe, info['src_node'])
+                elif kind_wanted in ('ready', 'offline') and 'msg_type' not in info and (
+                        kind_wanted == 'offline' or info.get('link_state') == 'ready'):
+                    future.set_result(True)
         except Exception:                    # the check must never disturb forwarding
             pass
 
-    def _logger_answered(self, port, writer, peer, probe):
+    def _logger_answered(self, port, writer, peer, probe, node):
         if not probe.confirmed:
             probe.confirmed = True
-            self.event(port, 'INFO', f'{peer} on port {port} answered as PakBus node {probe.expected}: logger confirmed')
-        self.state.set_role(port, writer, 'logger', f'PakBus node {probe.expected}', checked_at=now())
+            self.event(port, 'INFO', f'{peer} on port {port} answered the PakBus check (node {node}): logger confirmed')
+        self.state.set_role(port, writer, 'logger', f'PakBus node {node}', checked_at=now())
 
     async def _probe_loop(self, port, writer, peer, probe):
         failures = 0
         try:
-            while writer in self.clients[port] and not probe.asker and not self.stopping.is_set():
+            while writer in self.clients[port] and not self.stopping.is_set():
                 wait = self.probe_retry if failures else self.probe_interval if probe.confirmed else self.probe_first
                 delay = max(probe.last_rx, probe.last_check) + wait - time.monotonic()
                 if delay > 0:
@@ -259,9 +252,9 @@ class TcpDashboardServer:
                     continue
                 result = await self._probe_once(port, writer, peer, probe)
                 probe.last_check = time.monotonic()
-                if result is None:           # not alone, or became an asker: nothing to judge
+                if result is None:           # not alone: nothing to judge
                     continue
-                if result or time.monotonic() - probe.last_rx < wait:
+                if result or time.monotonic() - probe.last_rx < wait:   # any bytes from it mean it is alive
                     failures = 0
                     continue
                 failures += 1
@@ -271,8 +264,8 @@ class TcpDashboardServer:
                     self.event(port, 'WARNING', f'Logger {peer} on port {port} did not answer {failures} PakBus checks; disconnecting dead connection')
                     await self.disconnect_client(port, writer, 'Logger stopped answering PakBus Hello')
                 else:
-                    self.event(port, 'WARNING', f'{peer} on port {port} did not answer a PakBus Hello to node {probe.expected}; not checking it again')
-                    self.state.set_role(port, writer, None, f'did not answer PakBus node {probe.expected}')
+                    self.event(port, 'WARNING', f'{peer} on port {port} did not answer a PakBus Hello sent to node {probe.address}; not checking it again')
+                    self.state.set_role(port, writer, None, f'did not answer a PakBus Hello sent to node {probe.address}')
                 return
         except asyncio.CancelledError:
             raise
@@ -282,9 +275,9 @@ class TcpDashboardServer:
     async def _probe_once(self, port, writer, peer, probe):
         """One ring/Hello/finished exchange. True = answered, False = no answer, None = skipped."""
         async with self.admission[port]:
-            if writer not in self.clients[port] or len(self.clients[port]) != 1 or probe.asker:
+            if writer not in self.clients[port] or len(self.clients[port]) != 1:
                 return None
-            node, dst = self.probe_node, probe.expected
+            node, dst = self.probe_node, probe.address
             if not await self._probe_exchange(port, writer, peer, probe, 'ready', pakbus.ring(dst, node)):
                 return False
             probe.tran = probe.tran % 255 + 1
