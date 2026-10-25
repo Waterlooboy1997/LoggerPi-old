@@ -61,6 +61,15 @@ def decode_frame(body):
     info = {'bytes': len(packet)}
     info['signature_ok'] = len(packet) >= 2 and compute_signature(packet) == 0
     payload = packet[:-2] if len(packet) >= 2 else b''
+    sig = '' if info['signature_ok'] else ' [BAD SIGNATURE]'
+    if len(payload) == 4:
+        # Link-state control packet: only the two link-level header words (ring, ready, off-line...).
+        w0, w1 = int.from_bytes(payload[0:2], 'big'), int.from_bytes(payload[2:4], 'big')
+        link = w0 >> 12
+        info.update(link_state=LINK_STATES.get(link, f'0x{link:X}'), dst_phys=w0 & 0xFFF,
+                    src_phys=w1 & 0xFFF, expect_more=w1 >> 14, priority=(w1 >> 12) & 3)
+        info['summary'] = f"Link {info['link_state']}, phys {info['src_phys']}→{info['dst_phys']} (link control){sig}"
+        return info
     if len(payload) < 8:
         info['summary'] = f'short frame ({len(packet)} bytes, not a PakBus packet?)'
         return info
@@ -74,7 +83,7 @@ def decode_frame(body):
     if info['src_phys'] != info['src_node'] or info['dst_phys'] != info['dst_node']:
         route += f" (phys {info['src_phys']}→{info['dst_phys']})"
     if len(payload) < 10:
-        info['summary'] = f'{route}, header only'
+        info['summary'] = f"Link {info['link_state']}, {route}, header only{sig}"
         return info
     msg_type, tran = payload[8], payload[9]
     info.update(msg_type=msg_type, tran=tran)
@@ -91,7 +100,6 @@ def decode_frame(body):
         extra = f' verify interval {int.from_bytes(rest[2:4], "big")}s'
     elif info['proto'] == 1 and msg_type >= 0x80 and rest:
         extra = f' response code {rest[0]}'
-    sig = '' if info['signature_ok'] else ' [BAD SIGNATURE]'
     info['summary'] = f'{label}, {route}, tran {tran}, {len(rest)} payload B{extra}{sig}'
     return info
 

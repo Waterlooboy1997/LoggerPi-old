@@ -1,16 +1,36 @@
 import asyncio
+import errno
 import ipaddress
 import logging
+import socket
 import time
-from datetime import timedelta
 from shared_state import ClientInfo, now
-from config import READ_CHUNK_SIZE, LOG_CHUNK_EVENTS, LOG_PAYLOADS
+from config import READ_CHUNK_SIZE, LOG_CHUNK_EVENTS, LOG_PAYLOADS, KEEPALIVE_IDLE, KEEPALIVE_INTERVAL, KEEPALIVE_COUNT
 
 logger = logging.getLogger('tcp_server')
 
+
+def enable_keepalive(sock, idle, interval, count):
+    """Turn on TCP keepalive so a peer that vanished without closing is detected."""
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    for name, value in (('TCP_KEEPIDLE', idle), ('TCP_KEEPINTVL', interval), ('TCP_KEEPCNT', count)):
+        if hasattr(socket, name):
+            sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), value)
+    if hasattr(socket, 'TCP_USER_TIMEOUT'):
+        # Also bounds how long forwarded data may sit unacknowledged, which keepalive alone does not.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, (idle + interval * count) * 1000)
+
+
+def is_dead_peer(exc):
+    """True for the error the kernel reports when keepalive (or the user timeout) gives up."""
+    return isinstance(exc, OSError) and exc.errno == errno.ETIMEDOUT
+
+
 class TcpDashboardServer:
-    def __init__(self, host, ports, command_port, state, trusted_networks):
+    def __init__(self, host, ports, command_port, state, trusted_networks,
+                 keepalive=(KEEPALIVE_IDLE, KEEPALIVE_INTERVAL, KEEPALIVE_COUNT)):
         self.host, self.ports, self.command_port, self.state = host, ports, command_port, state
+        self.keepalive = keepalive
         self.networks = [ipaddress.ip_network(x, strict=False) for x in trusted_networks]
         self.clients = {p: [] for p in ports}
         self.admission = {p: asyncio.Lock() for p in ports}
@@ -18,7 +38,6 @@ class TcpDashboardServer:
         self.loop = None
         self.stopping = asyncio.Event()
         self.tasks = set()
-        self.scheduled_task = None
         self.command_tasks = set()
         self.closing = set()
         self.forward_locks = {p: asyncio.Lock() for p in ports}
@@ -52,12 +71,8 @@ class TcpDashboardServer:
         # Remove first so concurrent forwarding cannot target this writer.
         self.clients[port] = [c for c in self.clients[port] if c is not writer]
         self.state.remove_client(port, writer)
-        try:
-            if not writer.is_closing():
-                writer.write(reason.encode() + b'\n')
-                await asyncio.wait_for(writer.drain(), timeout=2)
-        except (Exception, asyncio.CancelledError):
-            pass
+        # The reason goes to the event log only: a data connection carries raw PakBus and
+        # must never receive bytes that did not come from its peer.
         try:
             writer.close()
             await asyncio.wait_for(writer.wait_closed(), timeout=2)
@@ -70,7 +85,9 @@ class TcpDashboardServer:
     async def handle_client(self, reader, writer, port):
         peer, ip = self.peer(writer), self.ip(writer)
         admitted = False
+        reaped = False
         try:
+            self._enable_keepalive(port, writer, peer)
             async with self.admission[port]:
                 duplicates = [c for c in self.clients[port] if self.ip(c) == ip]
                 if duplicates:
@@ -123,12 +140,23 @@ class TcpDashboardServer:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            self.event(port, 'ERROR', f'Error on port {port} with {peer}: {exc}')
+            if is_dead_peer(exc):
+                reaped = True
+                idle, interval, count = self.keepalive
+                self.event(port, 'WARNING', f'Dead connection reaped on port {port}: {peer} stopped answering TCP keepalive (~{idle + interval * count}s without a reply)')
+            else:
+                self.event(port, 'ERROR', f'Error on port {port} with {peer}: {exc}')
         finally:
             if admitted and writer in self.clients[port]:
-                await self.disconnect_client(port, writer, 'Client disconnected')
+                await self.disconnect_client(port, writer, 'Dead connection (keepalive timeout)' if reaped else 'Client disconnected')
             elif not admitted and not writer.is_closing():
                 writer.close()
+
+    def _enable_keepalive(self, port, writer, peer):
+        try:
+            enable_keepalive(writer.get_extra_info('socket'), *self.keepalive)
+        except Exception as exc:              # never refuse a client over this
+            self.event(port, 'WARNING', f'Could not enable TCP keepalive for {peer} on port {port}: {exc}')
 
     async def handle_command(self, reader, writer):
         peer = self.peer(writer)
@@ -180,24 +208,6 @@ class TcpDashboardServer:
             if record_reset:
                 self.event(port, 'INFO', f'Port {port} reset complete')
 
-    async def timed_disconnect(self):
-        while not self.stopping.is_set():
-            current = now()
-            target = current.replace(minute=30, second=0, microsecond=0)
-            if target <= current:
-                target += timedelta(hours=1)
-            try:
-                await asyncio.wait_for(self.stopping.wait(), timeout=(target-current).total_seconds())
-                return
-            except asyncio.TimeoutError:
-                pass
-            logger.info('30-minute mark reached. Disconnecting all clients.')
-            for port in self.ports:
-                if self.stopping.is_set():
-                    return
-                await self.reset_port(port, 'Disconnected at 30-minute mark by server policy.')
-                self.event(port, 'INFO', '30-minute policy disconnect executed.')
-
     async def start(self):
         self.loop = asyncio.get_running_loop()
         try:
@@ -212,7 +222,6 @@ class TcpDashboardServer:
         except Exception:
             await self.stop()
             raise
-        self.scheduled_task = asyncio.create_task(self.timed_disconnect())
 
     async def stop(self):
         self.stopping.set()
@@ -221,10 +230,6 @@ class TcpDashboardServer:
         for server in self.servers:
             await server.wait_closed()
         self.servers.clear()
-        if self.scheduled_task:
-            self.scheduled_task.cancel()
-            await asyncio.gather(self.scheduled_task, return_exceptions=True)
-            self.scheduled_task = None
         for port in self.ports:
             await self.reset_port(port, 'Server shutdown')
             self.state.listening(port, False)

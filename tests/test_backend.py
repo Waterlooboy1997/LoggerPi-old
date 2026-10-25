@@ -59,3 +59,28 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await asyncio.wait_for(reader.readline(), 3), b'Port 0 reset successfully.\n')
         writer.close(); await writer.wait_closed()
         self.assertEqual(len(self.server.clients[0]), 0)
+
+    async def test_no_automatic_disconnect_task(self):
+        # Clients are only dropped by a peer, keepalive, or a manual reset (dashboard or port 622).
+        self.assertFalse(hasattr(self.server, 'timed_disconnect'))
+        background = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        self.assertEqual(background, [])
+
+    async def assert_closed_silently(self, reader):
+        self.assertEqual(await asyncio.wait_for(reader.read(), 2), b'', 'no text may be written to a data socket')
+
+    async def test_rejected_client_gets_no_text(self):
+        await self.connect('127.0.0.2'); await self.connect('127.0.0.3')
+        third, _ = await self.connect('127.0.0.4')
+        await self.assert_closed_silently(third)
+
+    async def test_duplicate_ip_eviction_gets_no_text(self):
+        old, _ = await self.connect('127.0.0.2')
+        await self.connect('127.0.0.2')
+        await self.assert_closed_silently(old)
+        self.assertTrue(any('Reason: Duplicate IP detected.' in e['message'] for e in self.state.get_events(0)))
+
+    async def test_reset_gets_no_text(self):
+        a, _ = await self.connect('127.0.0.2')
+        await self.server.reset_port(0, 'Disconnected by GUI reset action.')
+        await self.assert_closed_silently(a)

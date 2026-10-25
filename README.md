@@ -7,8 +7,8 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Data ports: 300–379, 6785, 623, 724, 721, 723 (85 total); command port 622.
 - Maximum two accepted clients per data port. A new connection from the same IP evicts existing connections from that IP **on that port** before the capacity check.
 - Binary data is forwarded in both directions between the two clients, without modification or buffering for clients that are absent.
-- Disconnect reason messages remain newline-terminated; remote commands remain `RESET=<port>` with the original response text.
-- Reset closes connected clients but leaves listening sockets open. Scheduled reset disconnects at minute 30 each hour.
+- Remote commands remain `RESET=<port>` with the original response text.
+- Reset closes connected clients but leaves listening sockets open.
 - Per-port history holds up to 500 events; chunk/payload logging disabled by default. Reject/duplicate counters persist until process restart.
 - Client traffic counters disappear when a client disconnects; new cumulative traffic counters remain until process restart.
 
@@ -17,10 +17,12 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Admission lock per port prevents simultaneous connections bypassing capacity or duplicate-IP policy.
 - Writer drain/close operations have two-second deadlines; a stalled peer cannot indefinitely block cleanup.
 - Client removal happens before awaiting network shutdown, preventing further forwarding to a closing client.
-- Timed reset uses the next actual minute-30 deadline, avoiding the original narrow polling window.
+- **No automatic disconnect.** The original dropped every client at minute 30 each hour; that is removed. Connections stay up until a peer closes, keepalive finds them dead, or you reset a port from the dashboard or with `RESET=<port>` on port 622.
 - Port-bind failures abort startup and close previously opened listeners; shutdown cancels tracked handlers.
 - Remote command connections time out after ten seconds without data; source IP must match `TRUSTED_NETWORKS`.
 - A separate Disconnect action closes clients without writing the `Port X reset complete` event.
+- **No text is ever written to a data connection.** The original sent disconnect reasons such as `Duplicate IP detected.` into the socket, putting stray bytes into the PakBus stream. Reasons now go to the event log only and the socket is simply closed.
+- **TCP keepalive** is on for every accepted data socket, so a modem connection that vanishes without closing is dropped in about two minutes instead of holding a slot (see *TCP keepalive* below).
 
 ## Installation on DietPi
 
@@ -40,6 +42,10 @@ TCP_HOST=0.0.0.0
 WEB_HOST=192.168.1.20
 WEB_PORT=8888
 TRUSTED_NETWORKS=127.0.0.1/32,192.168.1.0/24
+# Optional keepalive tuning (seconds / probes), see "TCP keepalive":
+# KEEPALIVE_IDLE=60
+# KEEPALIVE_INTERVAL=15
+# KEEPALIVE_COUNT=4
 ENV
 sudo chmod 644 /etc/default/tcp-server
 sudo cp /opt/tcp-server/systemd/tcp-server.service /etc/systemd/system/
@@ -97,8 +103,8 @@ For a forwarding test, connect two clients from **different source IPs** to the 
 - **Dashboard inaccessible:** verify `WEB_HOST` is assigned to the Pi; verify firewall and routing; test locally with `curl`.
 - **RESET command gets no reply:** command source IP not trusted, firewall restriction or timeout. The command port intentionally does not authenticate beyond IP restriction.
 - **One client immediately disconnects:** both clients may share the same public/NAT IP; this is the original duplicate-IP policy.
+- **`Dead connection reaped` in the event log:** the peer stopped answering TCP keepalive (usually a modem that lost coverage or power) and its slot was freed.
 - **CPU temperature N/A:** DietPi kernel may not expose `/sys/class/thermal/thermal_zone0/temp`.
-- **All clients disconnect at minute 30:** intentional inherited policy.
 
 ## Notes
 
@@ -184,7 +190,8 @@ disconnects and rejects appear in the same timeline.
 PakBus frames are decoded where possible (sync `0xBD`, `0xBC` quoting, header, message type,
 transaction number, signature check) following PyCampbellCR1000's `pakbus.py`. Decoding is
 informational; non-PakBus data is simply shown as bytes. Runs of three or more `0xBD` are
-reported as an attention/sync burst.
+reported as an attention/sync burst. Six-byte link-control packets (ring, ready,
+finished, off-line) are shown as `Link <state>`, and every header shows its link state.
 
 Capture is **off by default**, per port, stops after the chosen time (maximum 60 minutes), is
 limited to 8 ports at a time and keeps the newest 3000 entries per port (512 bytes stored per
@@ -202,3 +209,21 @@ From the app folder on the Pi: `./deploy/update.sh`. It fetches GitHub, fast-for
 dependencies if `requirements.txt` changed, runs the tests, and only then restarts `tcp-server`.
 A failing test leaves the running service untouched. A restart disconnects every client, so the
 script refuses to run during minutes :00-:09 unless given `--force`.
+
+## TCP keepalive
+
+Every accepted data socket gets TCP keepalive so the relay notices a peer that disappeared without
+closing (a modem that lost power or coverage). Defaults, settable in `/etc/default/tcp-server`:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KEEPALIVE_IDLE` | `60` | Seconds of silence before the first probe. |
+| `KEEPALIVE_INTERVAL` | `15` | Seconds between probes. |
+| `KEEPALIVE_COUNT` | `4` | Unanswered probes before the connection is dropped. |
+
+`TCP_USER_TIMEOUT` is set to `IDLE + INTERVAL x COUNT` (120 s by default), which also drops a connection
+whose forwarded data stays unacknowledged that long. The event log then shows
+`Dead connection reaped on port N: <peer> stopped answering TCP keepalive` with the disconnect reason
+`Dead connection (keepalive timeout)`. Probes are empty TCP segments handled by the kernel and never
+appear in the PakBus stream or the traffic monitor. They use a little cellular data on idle connections
+(one small probe and reply per minute with the defaults).
