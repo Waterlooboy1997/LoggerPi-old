@@ -17,12 +17,12 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Admission lock per port prevents simultaneous connections bypassing capacity or duplicate-IP policy.
 - Writer drain/close operations have two-second deadlines; a stalled peer cannot indefinitely block cleanup.
 - Client removal happens before awaiting network shutdown, preventing further forwarding to a closing client.
-- **No automatic disconnect.** The original dropped every client at minute 30 each hour; that is removed. Connections stay up until a peer closes, keepalive finds them dead, or you reset a port from the dashboard or with `RESET=<port>` on port 622.
+- **No automatic disconnect.** The original dropped every client at minute 30 each hour; that is removed. Connections stay up until a peer closes, the PakBus check finds a logger dead, or you reset a port from the dashboard or with `RESET=<port>` on port 622.
 - Port-bind failures abort startup and close previously opened listeners; shutdown cancels tracked handlers.
 - Remote command connections time out after ten seconds without data; source IP must match `TRUSTED_NETWORKS`.
 - A separate Disconnect action closes clients without writing the `Port X reset complete` event.
 - **No text is ever written to a data connection.** The original sent disconnect reasons such as `Duplicate IP detected.` into the socket, putting stray bytes into the PakBus stream. Reasons now go to the event log only and the socket is simply closed.
-- **TCP keepalive** is on for every accepted data socket, so a modem connection that vanishes without closing is dropped in about two minutes instead of holding a slot (see *TCP keepalive* below).
+- **PakBus logger check.** The relay normally only passes bytes along. The one exception: when a client sits alone and silent on its port, the Pi checks it the way LoggerNet opens a session. That tells you which client is the logger, and a logger that stops answering is disconnected (see *PakBus logger check* below).
 
 ## Installation on DietPi
 
@@ -42,10 +42,10 @@ TCP_HOST=0.0.0.0
 WEB_HOST=192.168.1.20
 WEB_PORT=8888
 TRUSTED_NETWORKS=127.0.0.1/32,192.168.1.0/24
-# Optional keepalive tuning (seconds / probes), see "TCP keepalive":
-# KEEPALIVE_IDLE=60
-# KEEPALIVE_INTERVAL=15
-# KEEPALIVE_COUNT=4
+# Optional, see "PakBus logger check" and "TCP keepalive":
+# PAKBUS_PROBE=on
+# PROBE_INTERVAL=300
+# KEEPALIVE=off
 ENV
 sudo chmod 644 /etc/default/tcp-server
 sudo cp /opt/tcp-server/systemd/tcp-server.service /etc/systemd/system/
@@ -103,7 +103,8 @@ For a forwarding test, connect two clients from **different source IPs** to the 
 - **Dashboard inaccessible:** verify `WEB_HOST` is assigned to the Pi; verify firewall and routing; test locally with `curl`.
 - **RESET command gets no reply:** command source IP not trusted, firewall restriction or timeout. The command port intentionally does not authenticate beyond IP restriction.
 - **One client immediately disconnects:** both clients may share the same public/NAT IP; this is the original duplicate-IP policy.
-- **`Dead connection reaped` in the event log:** the peer stopped answering TCP keepalive (usually a modem that lost coverage or power) and its slot was freed.
+- **`did not answer 3 PakBus checks; disconnecting dead connection`:** a confirmed logger stopped answering (usually a modem that lost coverage or power) and its slot was freed.
+- **`did not answer a PakBus Hello sent to node N`:** the client never answered the check. It stays connected and is not checked again. The Hello is addressed to the port's `pakbus` in `sites.json`, so check that value.
 - **CPU temperature N/A:** DietPi kernel may not expose `/sys/class/thermal/thermal_zone0/temp`.
 
 ## Notes
@@ -210,10 +211,47 @@ dependencies if `requirements.txt` changed, runs the tests, and only then restar
 A failing test leaves the running service untouched. A restart disconnects every client, so the
 script refuses to run during minutes :00-:09 unless given `--force`.
 
+## PakBus logger check
+
+The relay cannot tell a logger from LoggerNet by IP, so it asks in PakBus. When a client has been
+**alone on its port and silent** for 15 seconds, the Pi sends it the same opening LoggerNet sends:
+
+1. `Link ring` to the port's PakBus address (from `sites.json`), from node 4094. The logger replies `Link ready`.
+2. `Hello command`. The logger replies `Hello response`.
+3. `Link finished`. The logger replies `Link off-line`.
+
+These packets are byte-for-byte what LoggerNet sent in real captures (checked by `tests/test_probe.py`).
+The packets are addressed to the port's `pakbus` in `sites.json`; that is the only thing the value is
+used for. Any valid answer to the Pi's Hello shows the client is **a logger** and that it is **alive**.
+The node that answered is **not** checked against anything, only reported: the dashboard shows
+`(logger)`, the node that answered, and how long ago it last answered, and the event log records
+`logger confirmed` once. Any bytes the client sends also count as alive. While it stays alone and idle it is checked again every `PROBE_INTERVAL` seconds (5 minutes
+by default). After 3 failed checks, 30 seconds apart, a confirmed logger is disconnected as dead.
+
+It cannot interfere with a collection:
+
+- It never runs while another client is connected to the port, and never while the client is sending.
+- A client that is sending (LoggerNet or the scheduler mid-session) is never checked; the 15 s of silence restart with every byte.
+- While the Pi waits for a reply (under a second normally, at most about 10 s), new connections to that
+  port wait to be admitted, so a PC or scheduler that connects mid-check never receives the logger's answer.
+- Hello reads and changes nothing on the logger and needs no security code.
+- A client that never answers and was never confirmed is left connected and not checked again.
+- Ports with no `pakbus` in `sites.json` are never checked.
+
+The Pi's own packets appear in the traffic monitor as `Pi (PakBus check)`. Each check is about 70 bytes
+of PakBus plus TCP overhead, roughly 12 checks an hour per idle logger.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PAKBUS_PROBE` | `on` | `off` disables the check; the relay then never sends anything of its own. |
+| `PROBE_NODE` | `4094` | PakBus node the Pi uses, the same as LoggerNet so loggers that only accept known neighbours still answer. |
+| `PROBE_INTERVAL` | `300` | Seconds of idle time between checks of a confirmed logger. |
+
 ## TCP keepalive
 
-Every accepted data socket gets TCP keepalive so the relay notices a peer that disappeared without
-closing (a modem that lost power or coverage). Defaults, settable in `/etc/default/tcp-server`:
+**Off by default.** On the cellular links tested so far the far end never answered TCP keepalive
+probes, so it dropped healthy idle loggers every two minutes. The PakBus check above does that job.
+`KEEPALIVE=on` turns it back on for links that do answer, with these settings:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

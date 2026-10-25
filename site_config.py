@@ -68,6 +68,12 @@ class SiteConfig:
             return {entry['callback_port']: entry['site'] for entry in self.entries
                     if entry.get('callback_port') is not None}
 
+    def pakbus(self, port):
+        """Expected logger PakBus address for a callback port, or None."""
+        with self.lock:
+            entry = next((e for e in self.entries if e.get('callback_port') == port), None)
+            return entry.get('pakbus') if entry else None
+
     def set_site(self, port, name):
         name = validate_name(name)
         with self.lock:
