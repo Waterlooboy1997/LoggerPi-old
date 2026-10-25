@@ -59,3 +59,9 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await asyncio.wait_for(reader.readline(), 3), b'Port 0 reset successfully.\n')
         writer.close(); await writer.wait_closed()
         self.assertEqual(len(self.server.clients[0]), 0)
+
+    async def test_no_automatic_disconnect_task(self):
+        # Clients are only dropped by a peer, keepalive, or a manual reset (dashboard or port 622).
+        self.assertFalse(hasattr(self.server, 'timed_disconnect'))
+        background = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        self.assertEqual(background, [])

@@ -8,7 +8,7 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Maximum two accepted clients per data port. A new connection from the same IP evicts existing connections from that IP **on that port** before the capacity check.
 - Binary data is forwarded in both directions between the two clients, without modification or buffering for clients that are absent.
 - Disconnect reason messages remain newline-terminated; remote commands remain `RESET=<port>` with the original response text.
-- Reset closes connected clients but leaves listening sockets open. Scheduled reset disconnects at minute 30 each hour.
+- Reset closes connected clients but leaves listening sockets open.
 - Per-port history holds up to 500 events; chunk/payload logging disabled by default. Reject/duplicate counters persist until process restart.
 - Client traffic counters disappear when a client disconnects; new cumulative traffic counters remain until process restart.
 
@@ -17,7 +17,7 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Admission lock per port prevents simultaneous connections bypassing capacity or duplicate-IP policy.
 - Writer drain/close operations have two-second deadlines; a stalled peer cannot indefinitely block cleanup.
 - Client removal happens before awaiting network shutdown, preventing further forwarding to a closing client.
-- Timed reset uses the next actual minute-30 deadline, avoiding the original narrow polling window.
+- **No automatic disconnect.** The original dropped every client at minute 30 each hour; that is removed. Connections stay up until a peer closes, keepalive finds them dead, or you reset a port from the dashboard or with `RESET=<port>` on port 622.
 - Port-bind failures abort startup and close previously opened listeners; shutdown cancels tracked handlers.
 - Remote command connections time out after ten seconds without data; source IP must match `TRUSTED_NETWORKS`.
 - A separate Disconnect action closes clients without writing the `Port X reset complete` event.
@@ -98,7 +98,6 @@ For a forwarding test, connect two clients from **different source IPs** to the 
 - **RESET command gets no reply:** command source IP not trusted, firewall restriction or timeout. The command port intentionally does not authenticate beyond IP restriction.
 - **One client immediately disconnects:** both clients may share the same public/NAT IP; this is the original duplicate-IP policy.
 - **CPU temperature N/A:** DietPi kernel may not expose `/sys/class/thermal/thermal_zone0/temp`.
-- **All clients disconnect at minute 30:** intentional inherited policy.
 
 ## Notes
 

@@ -2,7 +2,6 @@ import asyncio
 import ipaddress
 import logging
 import time
-from datetime import timedelta
 from shared_state import ClientInfo, now
 from config import READ_CHUNK_SIZE, LOG_CHUNK_EVENTS, LOG_PAYLOADS
 
@@ -18,7 +17,6 @@ class TcpDashboardServer:
         self.loop = None
         self.stopping = asyncio.Event()
         self.tasks = set()
-        self.scheduled_task = None
         self.command_tasks = set()
         self.closing = set()
         self.forward_locks = {p: asyncio.Lock() for p in ports}
@@ -180,24 +178,6 @@ class TcpDashboardServer:
             if record_reset:
                 self.event(port, 'INFO', f'Port {port} reset complete')
 
-    async def timed_disconnect(self):
-        while not self.stopping.is_set():
-            current = now()
-            target = current.replace(minute=30, second=0, microsecond=0)
-            if target <= current:
-                target += timedelta(hours=1)
-            try:
-                await asyncio.wait_for(self.stopping.wait(), timeout=(target-current).total_seconds())
-                return
-            except asyncio.TimeoutError:
-                pass
-            logger.info('30-minute mark reached. Disconnecting all clients.')
-            for port in self.ports:
-                if self.stopping.is_set():
-                    return
-                await self.reset_port(port, 'Disconnected at 30-minute mark by server policy.')
-                self.event(port, 'INFO', '30-minute policy disconnect executed.')
-
     async def start(self):
         self.loop = asyncio.get_running_loop()
         try:
@@ -212,7 +192,6 @@ class TcpDashboardServer:
         except Exception:
             await self.stop()
             raise
-        self.scheduled_task = asyncio.create_task(self.timed_disconnect())
 
     async def stop(self):
         self.stopping.set()
@@ -221,10 +200,6 @@ class TcpDashboardServer:
         for server in self.servers:
             await server.wait_closed()
         self.servers.clear()
-        if self.scheduled_task:
-            self.scheduled_task.cancel()
-            await asyncio.gather(self.scheduled_task, return_exceptions=True)
-            self.scheduled_task = None
         for port in self.ports:
             await self.reset_port(port, 'Server shutdown')
             self.state.listening(port, False)
