@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>BUOY Data Chart</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- D3 & jQuery (cdnjs) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" ></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 1rem; }
+    h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+    .controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .status { font-size: 0.9rem; opacity: 0.8; }
+    #dropzone {
+      border: 2px dashed #888; border-radius: 8px; padding: 0.75rem 1rem;
+      display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer;
+    }
+    #chart {
+      width: 100%; height: 60vh; min-height: 420px; position: relative;
+      border: 1px solid color-mix(in oklab, CanvasText 20%, transparent);
+      border-radius: 10px; padding: 4px; box-sizing: border-box;
+    }
+    .legend { display: flex; gap: 0.75rem; flex-wrap: wrap; font-size: 0.85rem; margin: 0.5rem 0 0.25rem; }
+    .legend-item { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; user-select: none; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; outline: 1px solid #0003; }
+    .legend-item.disabled { opacity: 0.35; text-decoration: line-through; }
+    .tooltip {
+      position: absolute; pointer-events: none; background: rgba(0,0,0,.75); color: white; font-size: 12px;
+      padding: 6px 8px; border-radius: 6px; transform: translate(-50%, -100%); white-space: nowrap;
+      box-shadow: 0 2px 9px rgba(0,0,0,.3);
+    }
+    .yaxis-right .tick text { text-anchor: start !important; }
+    .error { color: #b00020; font-weight: 600; }
+    .small { font-size: 0.85rem; opacity: .8; }
+    .foot { margin-top: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>BUOY Chart: Batt_volt, WaterTemp_C, DO_Percent, DO_mgL, TDS</h1>
+
+  <div class="controls">
+    <button id="reloadBtn" type="button">Reload BUOY_PB620_CB319_Measurement.dat</button>
+    <label id="dropzone" for="fileInput" title="Click or drop a file here">
+      <span>📄 Load another file…</span>
+      <input type="file" id="fileInput" accept=".dat,.csv,.txt" hidden />
+    </label>
+    <span class="status" id="status">Waiting to load data…</span>
+  </div>
+
+  <div id="chart"></div>
+  <div class="legend" id="legend"></div>
+  <div class="foot small">
+    Missing or non-numeric cells are treated as <code>null</code> (lines show gaps). Timestamp format expected: <code>YYYY-MM-DD HH:mm:ss</code>.
+  </div>
+
+  <script>
+    (function() {
+      const FILE_NAME = "BUOY_PB620_CB319_Measurement.dat";
+
+      // Series to plot (left vs right axes for readability)
+      const SERIES = [
+        { key: "Batt_volt",     axis: "left"  },
+        { key: "WaterTemp_C",   axis: "left"  },
+        { key: "DO_Percent",    axis: "right" },
+        { key: "DO_mgL",        axis: "right" },
+        { key: "TDS",           axis: "right" }
+      ];
+
+      const COLORS = d3.schemeTableau10; // pleasant defaults
+      const colorByKey = new Map(SERIES.map((s,i) => [s.key, COLORS[i % COLORS.length]]));
+
+      const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
+
+      const $status = $("#status");
+      const $legend = $("#legend");
+      const chartEl = document.getElementById("chart");
+      let svg, gMain, gLeftAxis, gRightAxis, gXaxis, gLinesG, gFocus, tooltip;
+
+      let currentData = [];
+      let seriesEnabled = new Map(SERIES.map(s => [s.key, true]));
+
+      // Utility: robust number parsing
+      function toNum(v) {
+        if (v === null || v === undefined) return null;
+        if (typeof v === "number" && Number.isFinite(v)) return v;
+        // strip spaces/commas/etc.
+        const s = String(v).trim();
+        if (!s) return null;
+        // handle special "string" noise like "NaN", "--", "null", "N/A"
+        if (/^(nan|na|n\/a|null|undefined|inf|-inf|--|\+?infinity)$/i.test(s)) return null;
+        // attempt float
+        const n = Number(s);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      // Parse text as CSV (even if file extension is .dat)
+      function parseCSVText(text) {
+        // Some loggers prepend stray header/comment rows. We'll:
+        //  - d3.csvParse handles headers automatically, but empty/short rows remain.
+        //  - We will post-filter to ensure valid timestamp and at least one numeric value.
+        const rows = d3.csvParse(text);
+
+        const needKeys = new Set(["TIMESTAMP", ...SERIES.map(s => s.key)]);
+        // If headers are misaligned (e.g., extra BOM/whitespace), normalize keys
+        const normalized = rows.map(r => {
+          const o = {};
+          for (const k in r) {
+            // trim header names
+            o[k ? k.trim() : k] = r[k];
+          }
+          return o;
+        });
+
+        const out = [];
+        for (const r of normalized) {
+          const tsRaw = (r["TIMESTAMP"] ?? "").trim();
+          const t = parseTime(tsRaw);
+          if (!(t instanceof Date) || isNaN(+t)) continue; // skip junk header rows
+
+          const rec = { date: t };
+          let haveAny = false;
+
+          for (const s of SERIES) {
+            const v = toNum(r[s.key]);
+            rec[s.key] = v;
+            if (v !== null) haveAny = true;
+          }
+
+          if (haveAny) out.push(rec);
+        }
+
+        // Sort by time just in case
+        out.sort((a,b) => a.date - b.date);
+        return out;
+      }
+
+      // Render chart
+      function render() {
+        // Clear chart
+        chartEl.innerHTML = "";
+        const { width, height } = chartEl.getBoundingClientRect();
+        const margin = { top: 20, right: 64, bottom: 38, left: 56 };
+        const W = Math.max(320, width  - margin.left - margin.right);
+        const H = Math.max(240, height - margin.top  - margin.bottom);
+
+        svg = d3.select("#chart").append("svg")
+          .attr("width", W + margin.left + margin.right)
+          .attr("height", H + margin.top + margin.bottom);
+
+        gMain = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+        gLinesG = gMain.append("g");
+        gLeftAxis = gMain.append("g").attr("class", "yaxis-left");
+        gRightAxis = gMain.append("g").attr("class", "yaxis-right").attr("transform", `translate(${W},0)`);
+        gXaxis = gMain.append("g").attr("transform", `translate(0,${H})`);
+
+        // Build data arrays per series, applying enabled flags
+        const enabledKeys = SERIES.filter(s => seriesEnabled.get(s.key)).map(s => s.key);
+
+        // X scale
+        const x = d3.scaleUtc()
+          .domain(d3.extent(currentData, d => d.date))
+          .range([0, W]);
+
+        // For Y scales, compute domain from enabled series per side, ignoring nulls
+        function domainFor(side) {
+          const keys = SERIES.filter(s => s.axis === side && seriesEnabled.get(s.key)).map(s => s.key);
+          const vals = [];
+          for (const k of keys) {
+            for (const d of currentData) {
+              const v = d[k];
+              if (v !== null && Number.isFinite(v)) vals.push(v);
+            }
+          }
+          if (vals.length === 0) return [0, 1]; // fallback
+          const [lo, hi] = d3.extent(vals);
+          // Add a bit of padding
+          const pad = (hi - lo) * 0.05 || 1;
+          return [lo - pad, hi + pad];
+        }
+
+        const yLeft = d3.scaleLinear().domain(domainFor("left")).range([H, 0]).nice();
+        const yRight = d3.scaleLinear().domain(domainFor("right")).range([H, 0]).nice();
+
+        // Axes
+        gXaxis.call(d3.axisBottom(x).ticks(Math.min(10, W/80)).tickFormat(d3.utcFormat("%Y-%m-%d %H:%M")));
+        gLeftAxis.call(d3.axisLeft(yLeft).ticks(Math.min(8, H/50)));
+        gRightAxis.call(d3.axisRight(yRight).ticks(Math.min(8, H/50)));
+
+        // Line generator with gaps for nulls
+        function lineFor(key, axis) {
+          const y = (axis === "left") ? yLeft : yRight;
+          return d3.line()
+            .defined(d => d[key] !== null && Number.isFinite(d[key]))
+            .x(d => x(d.date))
+            .y(d => y(d[key]));
+        }
+
+        // Draw lines
+        gLinesG.selectAll("path.line")
+          .data(SERIES)
+          .join("path")
+          .attr("class", d => `line line-${d.key}`)
+          .attr("fill", "none")
+          .attr("stroke-width", 2)
+          .attr("stroke", d => colorByKey.get(d.key))
+          .attr("opacity", d => seriesEnabled.get(d.key) ? 1 : 0.12)
+          .attr("d", d => lineFor(d.key, d.axis)(currentData));
+
+        // Tooltip & hover
+        tooltip = d3.select("#chart").append("div").attr("class", "tooltip").style("display","none");
+
+        const bisect = d3.bisector(d => d.date).center;
+        const hoverRect = gMain.append("rect")
+          .attr("fill", "transparent")
+          .attr("pointer-events", "all")
+          .attr("width", W)
+          .attr("height", H)
+          .on("mousemove", (event) => {
+            const [mx] = d3.pointer(event);
+            const t = x.invert(mx);
+            const idx = bisect(currentData, t);
+            const d = currentData[Math.max(0, Math.min(currentData.length-1, idx))];
+            showTooltip(event, d, x, yLeft, yRight);
+          })
+          .on("mouseleave", () => tooltip.style("display","none"));
+
+        // Legend
+        renderLegend();
+      }
+
+      function showTooltip(event, d, x, yLeft, yRight) {
+        const enabled = SERIES.filter(s => seriesEnabled.get(s.key));
+        const lines = [];
+        for (const s of enabled) {
+          const v = d[s.key];
+          const vStr = (v === null || !Number.isFinite(v)) ? "—" : formatNice(v);
+          lines.push(
+            `<div><span style="display:inline-block;width:10px;height:10px;background:${colorByKey.get(s.key)};border-radius:2px;margin-right:6px;vertical-align:middle;"></span><b>${s.key}</b>: ${vStr}</div>`
+          );
+        }
+        const html = `<div><b>${d3.utcFormat("%Y-%m-%d %H:%M:%S")(d.date)}</b></div>${lines.join("")}`;
+        tooltip.html(html).style("display","block");
+        const [mx, my] = d3.pointer(event, document.getElementById("chart"));
+        tooltip.style("left", mx + "px").style("top", my + "px");
+      }
+
+      function formatNice(v) {
+        // compact but readable
+        if (v === 0) return "0";
+        const a = Math.abs(v);
+        if (a >= 1000 || (a > 0 && a < 0.001)) return v.toExponential(2);
+        if (a >= 100) return v.toFixed(1);
+        if (a >= 10)  return v.toFixed(2);
+        return v.toFixed(3);
+      }
+
+      function renderLegend() {
+        $legend.empty();
+        for (const s of SERIES) {
+          const $item = $(`
+            <div class="legend-item ${seriesEnabled.get(s.key) ? "" : "disabled"}" data-key="${s.key}">
+              <span class="swatch" style="background:${colorByKey.get(s.key)}"></span>
+              <span>${s.key}${s.axis === "right" ? " (R)" : ""}</span>
+            </div>
+          `);
+          $item.on("click keypress", () => {
+            seriesEnabled.set(s.key, !seriesEnabled.get(s.key));
+            // Re-render chart only (keep data)
+            render();
+          });
+          $legend.append($item);
+        }
+      }
+
+      // Load helpers
+      async function loadFromUrl(url) {
+        $status.text(`Loading "${url}"…`);
+        const text = await d3.text(url);
+        return text;
+      }
+
+      function loadFromFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Failed to read file."));
+          reader.onload = () => resolve(reader.result);
+          reader.readAsText(file);
+        });
+      }
+
+      function processText(text) {
+        let parsed = [];
+        try {
+          parsed = parseCSVText(text);
+        } catch (e) {
+          console.error(e);
+          throw new Error("Could not parse the file as CSV. Ensure it has a header row and comma-separated columns.");
+        }
+        if (!parsed.length) {
+          throw new Error("No usable rows found. Check timestamp format or column names.");
+        }
+        currentData = parsed;
+        $status.text(`Loaded ${parsed.length} rows. (${d3.utcFormat("%Y-%m-%d %H:%M:%S")(parsed[0].date)} → ${d3.utcFormat("%Y-%m-%d %H:%M:%S")(parsed[parsed.length-1].date)})`);
+        render();
+      }
+
+      // Drag & drop
+      const dropzone = document.getElementById("dropzone");
+      dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.style.borderColor = "#4a8"; });
+      dropzone.addEventListener("dragleave", () => { dropzone.style.borderColor = ""; });
+      dropzone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = "";
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        try {
+          const text = await loadFromFile(file);
+          processText(text);
+        } catch (err) {
+          $status.html(`<span class="error">Error:</span> ${err.message}`);
+        }
+      });
+
+      // File input
+      $("#fileInput").on("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+          const text = await loadFromFile(file);
+          processText(text);
+        } catch (err) {
+          $status.html(`<span class="error">Error:</span> ${err.message}`);
+        }
+      });
+
+      // Reload button (tries default file)
+      $("#reloadBtn").on("click", async () => {
+        try {
+          const text = await loadFromUrl(FILE_NAME);
+          processText(text);
+        } catch (err) {
+          $status.html(
+            `<span class="error">Failed to fetch "${FILE_NAME}".</span> ` +
+            `Use the “Load another file…” button or drag & drop a file here.`
+          );
+          console.error(err);
+        }
+      });
+
+      // Resize observer for responsiveness
+      const ro = new ResizeObserver(() => { if (currentData.length) render(); });
+      ro.observe(chartEl);
+
+      // Auto-load default file on first run
+      (async () => {
+        try {
+          const text = await loadFromUrl(FILE_NAME);
+          processText(text);
+        } catch (err) {
+          $status.html(
+            `<span class="error">Failed to auto-load "${FILE_NAME}".</span> ` +
+            `Click “Reload” after placing it next to this HTML, or use the file picker / drag & drop.`
+          );
+          console.warn(err);
+        }
+      })();
+
+    })();
+  </script>
+</body>
+</html>

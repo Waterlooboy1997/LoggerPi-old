@@ -1,0 +1,904 @@
+{
+  "hierarchy": [
+    {
+      "address": "aws-loggernet-server.ddns.net:364",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "GIL2_6000_511_IP",
+              "type": "CR200-series"
+            }
+          ],
+          "name": "PakBusPort",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort",
+      "port": 364,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "jcu-leichhardt1.ddns.net:6785",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "LEI1_11203_514_IP",
+              "type": "CR200-series"
+            }
+          ],
+          "name": "PakBusPort_2",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "jcu-leichhardt1.ddns.net",
+      "name": "IPPort_2",
+      "port": 6785,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "120.157.29.81:6786",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "JJ2_11207_503_IP",
+              "type": "CR200-series"
+            }
+          ],
+          "name": "PakBusPort_3",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "120.157.29.81",
+      "name": "IPPort_3",
+      "port": 6786,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "jcu-jackyjacky5.ddns.net:6785",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "JJ5_CR1000_510_IP",
+              "type": "CR1000"
+            }
+          ],
+          "name": "PakBusPort_4",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "jcu-jackyjacky5.ddns.net",
+      "name": "IPPort_4",
+      "port": 6785,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "jcu-gilbert2.ddns.net:6786",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "GIL1_12335_512_IP",
+              "type": "CR200-series"
+            },
+            {
+              "name": "GIL1_12335_512_IP_CR350",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_5",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "jcu-gilbert2.ddns.net",
+      "name": "IPPort_5",
+      "port": 6786,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:308",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BSL",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_7",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_7",
+      "port": 308,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "digiscapegbrmathewsroad.dyndns.org:6785",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "UMR",
+              "type": "CR1000"
+            }
+          ],
+          "name": "PakBusPort_13",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "digiscapegbrmathewsroad.dyndns.org",
+      "name": "IPPort_13",
+      "port": 6785,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "carlac.konectgds.com:8980",
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "name": "LDW",
+                  "type": "CR300"
+                }
+              ],
+              "name": "pbRouter",
+              "type": "other-pb-router"
+            }
+          ],
+          "name": "PakBusPort_8",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "carlac.konectgds.com",
+      "name": "IPPort_8",
+      "port": 8980,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:319",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BUOY_PB620_CB319",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_19",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_19",
+      "port": 319,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:721",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BUOY_PB721_CB721",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_20",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_20",
+      "port": 721,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:724",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BUOY_PB724_CB724",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_21",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_21",
+      "port": 724,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:350",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "FDF",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_15",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "FDF350",
+      "port": 350,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:351",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "JRD",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_16",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "JRD351",
+      "port": 351,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:352",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "MBR",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_17",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "MBR352",
+      "port": 352,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:353",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BRD",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_22",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "BRD353",
+      "port": 353,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:354",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "FDU",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_23",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "FDU354",
+      "port": 354,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:355",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "WCZ",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_24",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "WCZ355",
+      "port": 355,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:356",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "UBD",
+              "type": "CR1000"
+            }
+          ],
+          "name": "PakBusPort_12",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "UBD356",
+      "port": 356,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:357",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "DIX",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_9",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "DIX357",
+      "port": 357,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:359",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BSU",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_18",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "BSU359",
+      "port": 359,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:360",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "URO",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_14",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "URO360",
+      "port": 360,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:363",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "MRM",
+              "type": "CR1000"
+            }
+          ],
+          "name": "PakBusPort_10",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "MRM363",
+      "port": 363,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:364",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "ROS",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_11",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "ROS364",
+      "port": 364,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:362",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "BEH",
+              "type": "CR1000"
+            }
+          ],
+          "name": "PakBusPort_6",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "BEH362",
+      "port": 362,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:358",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "WFC",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_25",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "WFC358",
+      "port": 358,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:623",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "LDW6",
+              "type": "CR300"
+            }
+          ],
+          "name": "PakBusPort_26",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "LDW623",
+      "port": 623,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:365",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "LDC1",
+              "type": "CR350"
+            }
+          ],
+          "name": "PakBusPort_27",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_6",
+      "port": 365,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:366",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "LDC2",
+              "type": "CR350"
+            }
+          ],
+          "name": "PakBusPort_28",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_9",
+      "port": 366,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:367",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "LDC3",
+              "type": "CR350"
+            }
+          ],
+          "name": "PakBusPort_29",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_10",
+      "port": 367,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:368",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "Porphyry",
+              "type": "CR1000X"
+            }
+          ],
+          "name": "PakBusPort_30",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_11",
+      "port": 368,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:369",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "Grey",
+              "type": "CR1000X"
+            }
+          ],
+          "name": "PakBusPort_31",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_12",
+      "port": 369,
+      "type": "tcp-com-port"
+    },
+    {
+      "address": "aws-loggernet-server.ddns.net:370",
+      "children": [
+        {
+          "children": [
+            {
+              "name": "Broken",
+              "type": "CR1000X"
+            }
+          ],
+          "name": "PakBusPort_32",
+          "type": "pakbus-port"
+        }
+      ],
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "name": "IPPort_14",
+      "port": 370,
+      "type": "tcp-com-port"
+    }
+  ],
+  "meta": {
+    "last_error": null,
+    "last_snapshot_at": "2026-10-24T16:57:11Z",
+    "last_snapshot_source": "cli",
+    "last_snapshot_status": "ok",
+    "last_timeout": false,
+    "worker_version": "1.0"
+  },
+  "sites": {
+    "BEH": {
+      "address": "aws-loggernet-server.ddns.net:362",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "BEH362",
+      "logger_type": "CR1000",
+      "model": "CR1000",
+      "pakbus": 1,
+      "port": 362,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "BEH",
+      "updated_at": "2026-10-24T16:57:03Z"
+    },
+    "BRD": {
+      "address": "aws-loggernet-server.ddns.net:353",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "BRD353",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 353,
+      "port": 353,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "BRD",
+      "updated_at": "2026-10-24T16:57:09Z"
+    },
+    "BSL": {
+      "address": "aws-loggernet-server.ddns.net:308",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "IPPort_7",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 308,
+      "port": 308,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "BSL",
+      "updated_at": "2026-10-24T16:57:05Z"
+    },
+    "BSU": {
+      "address": "aws-loggernet-server.ddns.net:359",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "BSU359",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 359,
+      "port": 359,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "BSU",
+      "updated_at": "2026-10-24T16:57:05Z"
+    },
+    "DIX": {
+      "address": "aws-loggernet-server.ddns.net:357",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "DIX357",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 357,
+      "port": 357,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "DIX",
+      "updated_at": "2026-10-24T16:57:03Z"
+    },
+    "FDF": {
+      "address": "aws-loggernet-server.ddns.net:350",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "FDF350",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 350,
+      "port": 350,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "FDF",
+      "updated_at": "2026-10-24T16:57:06Z"
+    },
+    "FDU": {
+      "address": "aws-loggernet-server.ddns.net:354",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "FDU354",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 354,
+      "port": 354,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "FDU",
+      "updated_at": "2026-10-24T16:57:06Z"
+    },
+    "JRD": {
+      "address": "aws-loggernet-server.ddns.net:351",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "JRD351",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 351,
+      "port": 351,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "JRD",
+      "updated_at": "2026-10-24T16:57:06Z"
+    },
+    "LDW": {
+      "address": null,
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": null,
+      "ipport": null,
+      "logger_type": null,
+      "model": null,
+      "pakbus": 250,
+      "port": null,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "LDW",
+      "updated_at": "2026-10-24T16:57:10Z"
+    },
+    "MBR": {
+      "address": "aws-loggernet-server.ddns.net:352",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "MBR352",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 352,
+      "port": 352,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "MBR",
+      "updated_at": "2026-10-24T16:57:08Z"
+    },
+    "MRM": {
+      "address": "aws-loggernet-server.ddns.net:363",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "MRM363",
+      "logger_type": "CR1000",
+      "model": "CR1000",
+      "pakbus": 363,
+      "port": 363,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "MRM",
+      "updated_at": "2026-10-24T16:57:04Z"
+    },
+    "ROS": {
+      "address": "aws-loggernet-server.ddns.net:364",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "ROS364",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 364,
+      "port": 364,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "ROS",
+      "updated_at": "2026-10-24T16:57:03Z"
+    },
+    "UBD": {
+      "address": "aws-loggernet-server.ddns.net:356",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "UBD356",
+      "logger_type": "CR1000",
+      "model": "CR1000",
+      "pakbus": 356,
+      "port": 356,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "UBD",
+      "updated_at": "2026-10-24T16:57:05Z"
+    },
+    "UMR": {
+      "address": "digiscapegbrmathewsroad.dyndns.org:6785",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "digiscapegbrmathewsroad.dyndns.org",
+      "ipport": "IPPort_13",
+      "logger_type": "CR1000",
+      "model": "CR1000",
+      "pakbus": 1,
+      "port": 6785,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "UMR",
+      "updated_at": "2026-10-24T16:57:04Z"
+    },
+    "URO": {
+      "address": "aws-loggernet-server.ddns.net:360",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "URO360",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 360,
+      "port": 360,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "URO",
+      "updated_at": "2026-10-24T16:57:04Z"
+    },
+    "WCZ": {
+      "address": "aws-loggernet-server.ddns.net:355",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "WCZ355",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 355,
+      "port": 355,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "WCZ",
+      "updated_at": "2026-10-24T16:57:07Z"
+    },
+    "WFC": {
+      "address": "aws-loggernet-server.ddns.net:358",
+      "collection_enabled": true,
+      "collection_schedule": "1h",
+      "interval_offset": "none",
+      "ip_address": "aws-loggernet-server.ddns.net",
+      "ipport": "WFC358",
+      "logger_type": "CR300",
+      "model": "CR300",
+      "pakbus": 358,
+      "port": 358,
+      "retry_attempts": 3,
+      "retry_delay_seconds": 300,
+      "site": "WFC",
+      "updated_at": "2026-10-24T16:57:11Z"
+    }
+  }
+}

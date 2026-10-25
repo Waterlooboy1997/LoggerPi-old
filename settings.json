@@ -1,0 +1,25 @@
+{
+  "output_directory": "validation",
+  "sites": [
+    {
+      "name": "ROS",
+      "host": "aws-loggernet-server.ddns.net",
+      "port": 364,
+      "pakbus_address": 364,
+      "pakbus_source": 2050,
+      "expected_serial": "13437",
+      "tables": [
+        "Measurement"
+      ],
+      "timezone": "Australia/Brisbane",
+      "collection_interval_seconds": 3600,
+      "retry_interval_seconds": 300,
+      "timeout_seconds": 10,
+      "max_run_seconds": 300,
+      "startup_delay_seconds": 0,
+      "inter_table_delay_seconds": 1,
+      "overlap_seconds": 3600,
+      "model": "CR300"
+    }
+  ]
+}

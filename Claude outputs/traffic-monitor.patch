@@ -1,0 +1,830 @@
+From fb357f933e7923f5a5b18567ac8d1a4a9cdd63d1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 26 Oct 2026 00:18:59 +1000
+Subject: [PATCH 1/2] Add live traffic monitor for data ports
+
+Per-port, opt-in, read-only capture of forwarded traffic with PakBus decoding
+(verified against PyCampbellCR1000 packets), dashboard panel, API and text export.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0168W1Pnk1JoaDX1V2BRa3By
+---
+ README.md                |  23 ++++
+ shared_state.py          |   4 +
+ static/dashboard.css     |   2 +
+ static/tap.js            |  65 ++++++++++
+ tap.py                   | 265 +++++++++++++++++++++++++++++++++++++++
+ tcp_server.py            |   9 ++
+ templates/dashboard.html |   2 +-
+ tests/test_tap.py        | 177 ++++++++++++++++++++++++++
+ web_dashboard.py         |  38 +++++-
+ 9 files changed, 583 insertions(+), 2 deletions(-)
+ create mode 100644 static/tap.js
+ create mode 100644 tap.py
+ create mode 100644 tests/test_tap.py
+
+diff --git a/README.md b/README.md
+index 9c15b08..ead7208 100644
+--- a/README.md
++++ b/README.md
+@@ -172,3 +172,26 @@ Developer checks: `python -m unittest discover -s tests -v` covers forwarding,
+ site persistence, validation, and API access controls. With Node.js available,
+ `node tests/test_dashboard.js` checks site rendering, filtering, and editor behavior
+ using a lightweight DOM stub.
++
++## Traffic monitor
++
++The dashboard's **Traffic monitor** panel shows what crosses the selected data port, live.
++Choose a port, pick a duration, and press **Start capture**. Each chunk read from a client is
++listed with its time, the gap since the previous chunk, source peer, the peers it was forwarded
++to (or `NOT FORWARDED` when no other client is connected), length, hex and ASCII. Connects,
++disconnects and rejects appear in the same timeline.
++
++PakBus frames are decoded where possible (sync `0xBD`, `0xBC` quoting, header, message type,
++transaction number, signature check) following PyCampbellCR1000's `pakbus.py`. Decoding is
++informational; non-PakBus data is simply shown as bytes. Runs of three or more `0xBD` are
++reported as an attention/sync burst.
++
++Capture is **off by default**, per port, stops after the chosen time (maximum 60 minutes), is
++limited to 8 ports at a time and keeps the newest 3000 entries per port (512 bytes stored per
++chunk; the true length is always shown). The tap only copies data after it has been read: it
++never writes to a socket, and any failure inside it is swallowed so forwarding is unaffected.
++**Download .txt** saves the capture as plain text. Captured packets can contain PakBus security
++codes (for example in clock and file commands), so treat downloads as sensitive.
++
++API: `GET /api/ports/<port>/tap?since=<id>`, `GET /api/ports/<port>/tap.txt`, and
++`POST /api/ports/<port>/tap/{start,stop,clear}` (control token required, like other actions).
+diff --git a/shared_state.py b/shared_state.py
+index c2466fd..b949249 100644
+--- a/shared_state.py
++++ b/shared_state.py
+@@ -3,6 +3,7 @@ from collections import deque
+ from dataclasses import dataclass, field
+ from datetime import datetime, timezone
+ from config import MAX_EVENTS_PER_PORT
++from tap import TrafficTap
+ 
+ def now():
+     return datetime.now(timezone.utc)
+@@ -40,6 +41,7 @@ class SharedState:
+         self.sequence = 0
+         self.total_in = 0
+         self.total_out = 0
++        self.tap = TrafficTap(ports)
+ 
+     def event(self, port, level, message):
+         with self.lock:
+@@ -52,6 +54,7 @@ class SharedState:
+                 state.recent_events.append(entry)
+                 state.last_event = message
+                 state.last_event_time = timestamp
++        self.tap.event(port, level, message)
+ 
+     def listening(self, port, value):
+         with self.lock:
+@@ -70,6 +73,7 @@ class SharedState:
+         with self.lock:
+             state = self.ports[port]
+             state.clients = [c for c in state.clients if c.writer is not writer]
++        self.tap.forget(port, writer)
+ 
+     def traffic(self, port, writer, received=0, sent=0):
+         with self.lock:
+diff --git a/static/dashboard.css b/static/dashboard.css
+index cf375c9..da29f99 100644
+--- a/static/dashboard.css
++++ b/static/dashboard.css
+@@ -3,3 +3,5 @@
+ .heading{flex-wrap:wrap}.port-filters{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px}.port-filters label{display:flex;align-items:center;gap:5px}.no-ports{text-align:center;color:#a1b3c5;white-space:normal;cursor:default}@media(max-width:480px){.port-filters{width:100%;justify-content:flex-start}}
+ 
+ #site-form{margin-top:14px}#site-name{display:block;width:100%;margin-top:6px;background:#111d29;border:1px solid #465b6c;border-radius:6px;color:white;padding:9px}button:disabled{opacity:.6;cursor:wait}#site-message{overflow-wrap:anywhere}
++
++#tap-panel{margin-top:12px}.tap-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.tap-controls select{background:#111d29;color:#fff;border:1px solid #465b6c;border-radius:6px;padding:6px}.tap-out{height:420px;overflow:auto;background:#101b26;border-radius:6px;padding:10px;font:12px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}.tap-row{border-left:4px solid #5b7a99;padding:3px 0 3px 8px;margin:4px 0}.tap-side0{border-left-color:#5aa9e6}.tap-side1{border-left-color:#7bd88f}.tap-side2{border-left-color:#c69cff}.tap-dropped .tap-head{color:#ffd07d}.tap-head{font-weight:600}.tap-frame{color:#cfe3f5}.tap-hex{color:#9db4c8}.tap-ascii{color:#7f95a8}.tap-event{color:#8ea2b4;border-bottom:1px solid #243342;padding:2px 0}
+diff --git a/static/tap.js b/static/tap.js
+new file mode 100644
+index 0000000..82b13c6
+--- /dev/null
++++ b/static/tap.js
+@@ -0,0 +1,65 @@
++'use strict';
++// Traffic monitor panel. Loaded after dashboard.js and shares its `selected`, `token` and `json`.
++(() => {
++  const $ = id => document.getElementById(id);
++  let port = null, lastId = 0, busy = false, peers = new Map();
++  const MAX_ROWS = 1500;
++  const clock = iso => { const d = new Date(iso); return d.toLocaleTimeString([], {hour12: false}) + '.' + String(d.getMilliseconds()).padStart(3, '0'); };
++  const div = (cls, text) => { const e = document.createElement('div'); e.className = cls; e.textContent = text; return e; };
++
++  function reset() { lastId = 0; peers = new Map(); $('tap-out').replaceChildren(); }
++  function side(peer) { if (!peers.has(peer)) peers.set(peer, Math.min(peers.size, 2)); return 'tap-side' + peers.get(peer); }
++
++  function addEntry(e) {
++    const out = $('tap-out');
++    if (e.kind === 'event') { out.appendChild(div('tap-event', `${clock(e.time)}  [${e.level}] ${e.message}`)); return; }
++    const row = document.createElement('div');
++    row.className = 'tap-row ' + side(e.from) + (e.forwarded ? '' : ' tap-dropped');
++    const to = e.forwarded ? e.to.join(', ') : 'NOT FORWARDED (no other client on this port)';
++    row.appendChild(div('tap-head', `${clock(e.time)}  +${e.delta.toFixed(3)}s  ${e.from} → ${to}  ${e.length} B`));
++    for (const f of e.frames) row.appendChild(div('tap-frame', f.summary));
++    if (e.pending_bytes) row.appendChild(div('tap-frame', `…${e.pending_bytes} B of an unfinished frame buffered`));
++    if ($('tap-hex').checked) {
++      row.appendChild(div('tap-hex', e.hex + (e.truncated ? '  …(truncated)' : '')));
++      if (/[^.]/.test(e.ascii)) row.appendChild(div('tap-ascii', e.ascii));
++    }
++    out.appendChild(row);
++  }
++
++  function status(data) {
++    $('tap-status').textContent = data.active
++      ? `Capturing port ${port}: ${Math.floor(data.seconds_remaining / 60)}m ${data.seconds_remaining % 60}s left` + (data.dropped ? ` · ${data.dropped} oldest dropped` : '')
++      : `Not capturing port ${port}. Start a capture to see traffic.`;
++    $('tap-start').disabled = data.active; $('tap-stop').disabled = !data.active;
++  }
++
++  async function poll() {
++    if (busy) return; busy = true;
++    try {
++      if (port !== selected) { port = selected; reset(); }
++      const data = await json(`/api/ports/${port}/tap?since=${lastId}&limit=500`);
++      if (port !== selected) return;
++      for (const e of data.entries) { lastId = Math.max(lastId, e.id); addEntry(e); }
++      const out = $('tap-out');
++      while (out.children.length > MAX_ROWS) out.firstChild.remove();
++      if (data.entries.length && $('tap-scroll').checked) out.scrollTop = out.scrollHeight;
++      status(data);
++    } catch (err) { $('tap-status').textContent = 'Monitor unavailable: ' + err.message; }
++    finally { busy = false; }
++  }
++
++  async function control(action, body) {
++    try {
++      await json(`/api/ports/${selected}/tap/${action}`, {method: 'POST', headers: {'X-Control-Token': token, 'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
++      if (action === 'clear') reset();
++      await poll();
++    } catch (err) { alert('Monitor action failed: ' + err.message); }
++  }
++
++  $('tap-start').addEventListener('click', () => control('start', {minutes: Number($('tap-minutes').value)}));
++  $('tap-stop').addEventListener('click', () => control('stop'));
++  $('tap-clear').addEventListener('click', () => control('clear'));
++  $('tap-download').addEventListener('click', () => { location.href = `/api/ports/${selected}/tap.txt`; });
++  $('tap-hex').addEventListener('change', () => { reset(); poll(); });
++  poll(); setInterval(poll, 1000);
++})();
+diff --git a/tap.py b/tap.py
+new file mode 100644
+index 0000000..8c1ee39
+--- /dev/null
++++ b/tap.py
+@@ -0,0 +1,265 @@
++"""Live traffic tap: observe what crosses a data port without changing it.
++
++Everything here is read-only with respect to forwarding. Bytes are copied into a
++bounded buffer *after* they have been read, and the tap never writes to a socket.
++Capture is off by default, per port, and expires automatically.
++
++PakBus decoding is best-effort and informational. Framing, header layout and the
++signature algorithm follow PyCampbellCR1000's pakbus.py (sync byte 0xBD, 0xBC
++quoting, four 16-bit header words, signature residue of zero).
++"""
++import threading
++import time
++from collections import deque
++from datetime import datetime, timezone
++
++SYNC = 0xBD
++QUOTE = 0xBC
++
++MAX_ENTRIES_PER_PORT = 3000
++MAX_STORED_BYTES = 512          # bytes kept per chunk; true length is always recorded
++SYNC_REPORT_MIN = 3             # a closing+opening 0xBD pair (2) is normal framing
++MAX_FRAME_BUFFER = 70000        # discard a runaway unframed stream beyond this
++DEFAULT_MINUTES = 10
++MAX_MINUTES = 60
++MAX_TAPPED_PORTS = 8
++
++# (HiProtoCode, MsgType) -> name. Only types present in PyCampbellCR1000 are named;
++# anything else is shown numerically rather than guessed.
++MESSAGE_NAMES = {
++    (0, 0x09): 'Hello command', (0, 0x89): 'Hello response', (0, 0x0E): 'Hello request',
++    (0, 0x0D): 'Bye', (0, 0x0F): 'Get settings command', (0, 0x8F): 'Get settings response',
++    (0, 0x81): 'Delivery failure',
++    (1, 0x09): 'Collect data command', (1, 0x89): 'Collect data response',
++    (1, 0x17): 'Clock command', (1, 0x97): 'Clock response',
++    (1, 0x18): 'Programming statistics command', (1, 0x98): 'Programming statistics response',
++    (1, 0x1C): 'File download command', (1, 0x9C): 'File download response',
++    (1, 0x1D): 'File upload command', (1, 0x9D): 'File upload response',
++    (1, 0xA1): 'Please wait',
++}
++LINK_STATES = {0x9: 'ring', 0xA: 'ready', 0xB: 'finished', 0x8: 'off-line'}
++
++
++def compute_signature(buff, seed=0xAAAA):
++    sig = seed
++    for x in buff:
++        j = sig
++        sig = (sig << 1) & 0x1FF
++        if sig >= 0x100:
++            sig += 1
++        sig = ((((sig + (j >> 8) + x) & 0xFF) | (j << 8))) & 0xFFFF
++    return sig
++
++
++def unquote(data):
++    return data.replace(b'\xBC\xDD', b'\xBD').replace(b'\xBC\xDC', b'\xBC')
++
++
++def decode_frame(body):
++    """Decode one frame body (between sync bytes, still quoted). Returns a dict."""
++    packet = unquote(body)
++    info = {'bytes': len(packet)}
++    info['signature_ok'] = len(packet) >= 2 and compute_signature(packet) == 0
++    payload = packet[:-2] if len(packet) >= 2 else b''
++    if len(payload) < 8:
++        info['summary'] = f'short frame ({len(packet)} bytes, not a PakBus packet?)'
++        return info
++    w0, w1, w2, w3 = (int.from_bytes(payload[i:i + 2], 'big') for i in (0, 2, 4, 6))
++    link = w0 >> 12
++    info.update(
++        link_state=LINK_STATES.get(link, f'0x{link:X}'), dst_phys=w0 & 0xFFF,
++        src_phys=w1 & 0xFFF, expect_more=w1 >> 14, priority=(w1 >> 12) & 3,
++        proto=w2 >> 12, dst_node=w2 & 0xFFF, hops=w3 >> 12, src_node=w3 & 0xFFF)
++    route = f"node {info['src_node']}→{info['dst_node']}"
++    if info['src_phys'] != info['src_node'] or info['dst_phys'] != info['dst_node']:
++        route += f" (phys {info['src_phys']}→{info['dst_phys']})"
++    if len(payload) < 10:
++        info['summary'] = f'{route}, header only'
++        return info
++    msg_type, tran = payload[8], payload[9]
++    info.update(msg_type=msg_type, tran=tran)
++    name = MESSAGE_NAMES.get((info['proto'], msg_type))
++    proto_name = {0: 'PakCtrl', 1: 'BMP5'}.get(info['proto'], f"proto {info['proto']}")
++    label = name or f'{proto_name} msg 0x{msg_type:02X}'
++    extra = ''
++    rest = payload[10:]
++    if (info['proto'], msg_type) == (0, 0x81) and rest:
++        extra = f' error code {rest[0]}'
++    elif (info['proto'], msg_type) == (1, 0xA1) and len(rest) >= 3:
++        extra = f' wait {int.from_bytes(rest[1:3], "big")}s'
++    elif (info['proto'], msg_type) in ((0, 0x09), (0, 0x89)) and len(rest) >= 4:
++        extra = f' verify interval {int.from_bytes(rest[2:4], "big")}s'
++    elif info['proto'] == 1 and msg_type >= 0x80 and rest:
++        extra = f' response code {rest[0]}'
++    sig = '' if info['signature_ok'] else ' [BAD SIGNATURE]'
++    info['summary'] = f'{label}, {route}, tran {tran}, {len(rest)} payload B{extra}{sig}'
++    return info
++
++
++class StreamDecoder:
++    """Splits one direction of one connection into sync runs and frames."""
++
++    def __init__(self):
++        self.buffer = bytearray()
++        self.sync_run = 0
++
++    def feed(self, data):
++        events = []
++        for byte in data:
++            if byte == SYNC:
++                if self.buffer:
++                    events.append(('frame', bytes(self.buffer)))
++                    self.buffer.clear()
++                    self.sync_run = 1
++                else:
++                    self.sync_run += 1
++            else:
++                if self.sync_run >= SYNC_REPORT_MIN:
++                    events.append(('sync', self.sync_run))
++                self.sync_run = 0
++                self.buffer.append(byte)
++                if len(self.buffer) > MAX_FRAME_BUFFER:
++                    events.append(('overflow', len(self.buffer)))
++                    self.buffer.clear()
++        return events
++
++
++def _iso(ts):
++    return datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec='milliseconds')
++
++
++def _printable(data):
++    return ''.join(chr(b) if 32 <= b < 127 else '.' for b in data)
++
++
++class TrafficTap:
++    def __init__(self, ports):
++        self._lock = threading.RLock()
++        self._until = {}                     # port -> monotonic expiry
++        self._entries = {p: deque(maxlen=MAX_ENTRIES_PER_PORT) for p in ports}
++        self._decoders = {}                  # (port, id(writer)) -> StreamDecoder
++        self._seq = 0
++        self._last_time = {}
++        self._dropped = {p: 0 for p in ports}
++
++    # -- control -----------------------------------------------------------
++    def start(self, port, minutes=DEFAULT_MINUTES):
++        minutes = max(1, min(MAX_MINUTES, int(minutes)))
++        with self._lock:
++            self._expire()
++            if port not in self._until and len(self._until) >= MAX_TAPPED_PORTS:
++                raise ValueError(f'At most {MAX_TAPPED_PORTS} ports can be captured at once')
++            self._until[port] = time.monotonic() + minutes * 60
++        return minutes
++
++    def stop(self, port):
++        with self._lock:
++            self._until.pop(port, None)
++            for key in [k for k in self._decoders if k[0] == port]:
++                del self._decoders[key]
++
++    def clear(self, port):
++        with self._lock:
++            self._entries[port].clear()
++            self._dropped[port] = 0
++
++    def active(self, port):
++        until = self._until.get(port)
++        if until is None:
++            return False
++        if time.monotonic() >= until:
++            self.stop(port)
++            return False
++        return True
++
++    def _expire(self):
++        now = time.monotonic()
++        for port in [p for p, u in self._until.items() if now >= u]:
++            self.stop(port)
++
++    # -- recording (called from the forwarding path; must never raise) ------
++    def forget(self, port, writer):
++        if not self._until:
++            return
++        try:
++            with self._lock:
++                self._decoders.pop((port, id(writer)), None)
++        except Exception:
++            pass
++
++    def _append(self, port, entry):
++        self._seq += 1
++        entry['id'] = self._seq
++        queue = self._entries[port]
++        if len(queue) == queue.maxlen:
++            self._dropped[port] += 1
++        queue.append(entry)
++
++    def event(self, port, level, message):
++        if not self._until:
++            return
++        try:
++            if not self.active(port):
++                return
++            with self._lock:
++                ts = time.time()
++                self._append(port, {'kind': 'event', 'time': _iso(ts), 'level': level, 'message': message})
++        except Exception:                    # the tap must never disturb connection handling
++            pass
++
++    def chunk(self, port, writer, source, data, recipients, read_at=None):
++        """One read from `source`. `recipients` lists the peers it was forwarded to."""
++        if not self._until:
++            return
++        try:
++            if not self.active(port):
++                return
++            ts = read_at or time.time()
++            with self._lock:
++                decoder = self._decoders.setdefault((port, id(writer)), StreamDecoder())
++                frames = []
++                for kind, value in decoder.feed(data):
++                    if kind == 'frame':
++                        frames.append(decode_frame(value))
++                    elif kind == 'sync':
++                        frames.append({'summary': f'attention/sync ×{value} (0xBD)'})
++                    else:
++                        frames.append({'summary': f'unframed data exceeded {value} bytes; discarded'})
++                if decoder.sync_run >= SYNC_REPORT_MIN and not decoder.buffer:
++                    frames.append({'summary': f'attention/sync ×{decoder.sync_run} (0xBD)'})
++                    decoder.sync_run = 1
++                delta = ts - self._last_time.get(port, ts)
++                self._last_time[port] = ts
++                kept = data[:MAX_STORED_BYTES]
++                self._append(port, {
++                    'kind': 'data', 'time': _iso(ts), 'delta': round(delta, 3), 'from': source,
++                    'to': list(recipients), 'forwarded': bool(recipients), 'length': len(data),
++                    'truncated': len(data) > len(kept), 'hex': kept.hex(' '), 'ascii': _printable(kept),
++                    'frames': frames, 'pending_bytes': len(decoder.buffer)})
++        except Exception:                    # the tap must never disturb forwarding
++            pass
++
++    # -- reading -------------------------------------------------------------
++    def read(self, port, since=0, limit=500):
++        with self._lock:
++            self._expire()
++            until = self._until.get(port)
++            remaining = max(0, int(until - time.monotonic())) if until else 0
++            entries = [dict(e) for e in self._entries[port] if e['id'] > since][-limit:]
++            return {'active': until is not None, 'seconds_remaining': remaining,
++                    'dropped': self._dropped[port], 'entries': entries}
++
++    def as_text(self, port):
++        lines = []
++        for e in self.read(port, 0, MAX_ENTRIES_PER_PORT)['entries']:
++            if e['kind'] == 'event':
++                lines.append(f"{e['time']}  [{e['level']}] {e['message']}")
++                continue
++            to = ', '.join(e['to']) if e['forwarded'] else 'NOT FORWARDED (no other client)'
++            lines.append(f"{e['time']}  +{e['delta']:.3f}s  {e['from']} -> {to}  {e['length']} B")
++            for f in e['frames']:
++                lines.append(f"    {f['summary']}")
++            lines.append(f"    hex: {e['hex']}{' ...(truncated)' if e['truncated'] else ''}")
++            if any(c != '.' for c in e['ascii']):
++                lines.append(f"    txt: {e['ascii']}")
++        return '\n'.join(lines) + '\n'
+diff --git a/tcp_server.py b/tcp_server.py
+index 4d5cdea..9e23185 100644
+--- a/tcp_server.py
++++ b/tcp_server.py
+@@ -1,6 +1,7 @@
+ import asyncio
+ import ipaddress
+ import logging
++import time
+ from datetime import timedelta
+ from shared_state import ClientInfo, now
+ from config import READ_CHUNK_SIZE, LOG_CHUNK_EVENTS, LOG_PAYLOADS
+@@ -91,10 +92,12 @@ class TcpDashboardServer:
+                 data = await reader.read(READ_CHUNK_SIZE)
+                 if not data:
+                     break
++                read_at = time.time()
+                 self.state.traffic(port, writer, received=len(data))
+                 if LOG_CHUNK_EVENTS:
+                     self.event(port, 'INFO', f'Data received on port {port} from {peer} -> {data.decode(errors="ignore").strip()}' if LOG_PAYLOADS else f'Received {len(data)} bytes on port {port} from {peer}')
+                 forwarded = False
++                recipients = []
+                 async with self.forward_locks[port]:
+                     for other in list(self.clients[port]):
+                         if writer not in self.clients[port] or other is writer or other not in self.clients[port] or other in self.closing:
+@@ -104,11 +107,17 @@ class TcpDashboardServer:
+                             await asyncio.wait_for(other.drain(), timeout=10)
+                             self.state.traffic(port, other, sent=len(data))
+                             forwarded = True
++                            recipients.append(self.peer(other))
+                             if LOG_CHUNK_EVENTS:
+                                 self.event(port, 'INFO', f'Forwarded {len(data)} bytes from {peer} to {self.peer(other)} on port {port}')
+                         except Exception as exc:
+                             self.event(port, 'ERROR', f'Forwarding error on port {port} to {self.peer(other)}: {exc}')
+                             await self.disconnect_client(port, other, 'Forwarding error')
++                try:
++                    # Read-only observation for the dashboard's traffic monitor.
++                    self.state.tap.chunk(port, writer, peer, data, recipients, read_at)
++                except Exception:
++                    pass
+                 if not forwarded and LOG_CHUNK_EVENTS:
+                     self.event(port, 'INFO', f'No other client connected on port {port}. Data not forwarded.')
+         except asyncio.CancelledError:
+diff --git a/templates/dashboard.html b/templates/dashboard.html
+index 7e836fb..3514373 100644
+--- a/templates/dashboard.html
++++ b/templates/dashboard.html
+@@ -1 +1 @@
+-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="control-token" content="{{ control_token }}"><title>TCP Server Dashboard</title><link rel="stylesheet" href="/static/dashboard.css"></head><body><main><header><div><h1>TCP Server</h1><p>DietPi · Live port management</p></div><span id="connection">Connecting…</span></header><section id="summary" class="stats"></section><section class="stats" id="system"></section><div class="layout"><section class="panel"><div class="heading"><h2>TCP ports</h2><div class="port-filters"><input id="search" type="search" placeholder="Filter port, site or IP" aria-label="Filter port, site or IP"><label><input id="connected-only" type="checkbox"> Only ports with connections</label></div></div><div class="table-wrap"><table><thead><tr><th>Port</th><th>Site</th><th>Listening</th><th>Clients</th><th>Client 1</th><th>Duration</th><th>Client 2</th><th>Duration</th><th>Rejects</th><th>Duplicates</th></tr></thead><tbody id="ports"></tbody></table></div></section><section class="panel"><h2 id="detail-title">Port details</h2><div id="detail"></div><form id="site-form"><label for="site-name">Site name</label><input id="site-name" type="text" maxlength="100" autocomplete="off"><div class="actions"><button id="site-save" type="submit">Save</button><button id="site-cancel" type="button">Cancel</button></div><p id="site-message" role="status" aria-live="polite"></p></form><div class="actions"><button id="reset" class="danger">Reset port</button><button id="disconnect">Disconnect clients</button><button id="clear">Clear events</button></div><div class="heading"><h2>Event log</h2><label><input type="checkbox" id="all-ports"> All ports</label></div><label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label><div id="logs" class="logs" aria-live="off"></div></section></div></main><script src="/static/dashboard.js" defer></script></body></html>
++<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="control-token" content="{{ control_token }}"><title>TCP Server Dashboard</title><link rel="stylesheet" href="/static/dashboard.css"></head><body><main><header><div><h1>TCP Server</h1><p>DietPi · Live port management</p></div><span id="connection">Connecting…</span></header><section id="summary" class="stats"></section><section class="stats" id="system"></section><div class="layout"><section class="panel"><div class="heading"><h2>TCP ports</h2><div class="port-filters"><input id="search" type="search" placeholder="Filter port, site or IP" aria-label="Filter port, site or IP"><label><input id="connected-only" type="checkbox"> Only ports with connections</label></div></div><div class="table-wrap"><table><thead><tr><th>Port</th><th>Site</th><th>Listening</th><th>Clients</th><th>Client 1</th><th>Duration</th><th>Client 2</th><th>Duration</th><th>Rejects</th><th>Duplicates</th></tr></thead><tbody id="ports"></tbody></table></div></section><section class="panel"><h2 id="detail-title">Port details</h2><div id="detail"></div><form id="site-form"><label for="site-name">Site name</label><input id="site-name" type="text" maxlength="100" autocomplete="off"><div class="actions"><button id="site-save" type="submit">Save</button><button id="site-cancel" type="button">Cancel</button></div><p id="site-message" role="status" aria-live="polite"></p></form><div class="actions"><button id="reset" class="danger">Reset port</button><button id="disconnect">Disconnect clients</button><button id="clear">Clear events</button></div><div class="heading"><h2>Event log</h2><label><input type="checkbox" id="all-ports"> All ports</label></div><label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label><div id="logs" class="logs" aria-live="off"></div></section></div><section class="panel" id="tap-panel"><div class="heading"><h2>Traffic monitor</h2><div class="tap-controls"><label>Capture for <select id="tap-minutes"><option value="5">5 min</option><option value="10" selected>10 min</option><option value="30">30 min</option><option value="60">60 min</option></select></label><button id="tap-start">Start capture</button><button id="tap-stop" disabled>Stop</button><button id="tap-clear">Clear</button><button id="tap-download">Download .txt</button><label><input type="checkbox" id="tap-hex" checked> Hex</label><label><input type="checkbox" id="tap-scroll" checked> Auto-scroll</label></div></div><p id="tap-status" role="status">Select a port, then start a capture.</p><p class="muted">Shows the selected port only. Data is copied for display and never altered; capture is off by default and stops by itself. Captured packets can contain PakBus security codes, so share downloads carefully.</p><div id="tap-out" class="tap-out" aria-live="off"></div></section></main><script src="/static/dashboard.js" defer></script><script src="/static/tap.js" defer></script></body></html>
+diff --git a/tests/test_tap.py b/tests/test_tap.py
+new file mode 100644
+index 0000000..109c93f
+--- /dev/null
++++ b/tests/test_tap.py
+@@ -0,0 +1,177 @@
++"""Traffic monitor tests. Packet fixtures were generated with PyCampbellCR1000's own
++PakBus class (src node 2050 -> dst node 308, logger 308 replying), so they are genuine
++on-the-wire frames: sync 0xBD, 0xBC quoting and a valid signature."""
++import asyncio
++import re
++import sys
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++from shared_state import SharedState
++from tap import StreamDecoder, TrafficTap, decode_frame
++from tcp_server import TcpDashboardServer
++from web_dashboard import create_app
++
++ATTENTION = bytes.fromhex('bdbdbdbdbdbd')
++HELLO_CMD = bytes.fromhex('bd9134580201340802090100020708154abd')
++HELLO_RESP = bytes.fromhex('bda802913408020134890700020708afaabd')
++GETSETTINGS = bytes.fromhex('bda1349802013408020f02e955bd')
++CLOCK = bytes.fromhex('bda134980211340802170300000000000000000000218abd')
++BYE = bytes.fromhex('bdb1341802013408020d00dc67bd')
++
++
++def frames(data):
++    return [decode_frame(v) for k, v in StreamDecoder().feed(data) if k == 'frame']
++
++
++class DecoderTests(unittest.TestCase):
++    def test_hello_command(self):
++        f = frames(HELLO_CMD)[0]
++        self.assertTrue(f['signature_ok'])
++        self.assertEqual((f['src_node'], f['dst_node'], f['proto'], f['msg_type'], f['tran']), (2050, 308, 0, 0x09, 1))
++        self.assertEqual(f['link_state'], 'ring')
++        self.assertIn('Hello command', f['summary'])
++
++    def test_hello_response_direction(self):
++        f = frames(HELLO_RESP)[0]
++        self.assertTrue(f['signature_ok'])
++        self.assertEqual((f['src_node'], f['dst_node'], f['msg_type'], f['tran']), (308, 2050, 0x89, 7))
++        self.assertIn('Hello response', f['summary'])
++
++    def test_other_messages(self):
++        self.assertIn('Get settings command', frames(GETSETTINGS)[0]['summary'])
++        self.assertIn('Clock command', frames(CLOCK)[0]['summary'])
++        self.assertEqual(frames(CLOCK)[0]['proto'], 1)
++        self.assertIn('Bye', frames(BYE)[0]['summary'])
++        self.assertEqual(frames(BYE)[0]['link_state'], 'finished')
++
++    def test_corruption_flags_bad_signature(self):
++        bad = bytearray(HELLO_CMD); bad[10] ^= 0x01
++        self.assertFalse(frames(bytes(bad))[0]['signature_ok'])
++        self.assertIn('BAD SIGNATURE', frames(bytes(bad))[0]['summary'])
++
++    def test_stream_split_across_chunks_and_attention(self):
++        d = StreamDecoder(); stream = ATTENTION + HELLO_CMD + HELLO_RESP
++        events = []
++        for i in range(0, len(stream), 3):
++            events += d.feed(stream[i:i + 3])
++        kinds = [k for k, _ in events]
++        self.assertEqual(kinds.count('frame'), 2)
++        self.assertEqual([v for k, v in events if k == 'sync'], [7])   # 6 attention + frame-opening 0xBD
++
++    def test_back_to_back_frames_do_not_report_sync(self):
++        events = StreamDecoder().feed(HELLO_CMD + GETSETTINGS)
++        self.assertEqual([k for k, _ in events], ['frame', 'frame'])
++
++    def test_non_pakbus_is_not_misreported(self):
++        f = frames(b'\xbdhi\xbd')[0]
++        self.assertIn('not a PakBus', f['summary'])
++
++
++class RelayTapTests(unittest.IsolatedAsyncioTestCase):
++    async def asyncSetUp(self):
++        self.state = SharedState([0])
++        self.server = TcpDashboardServer('127.0.0.1', [0], 0, self.state, ['127.0.0.0/8'])
++        await self.server.start()
++        self.port = self.server.servers[0].sockets[0].getsockname()[1]
++        self.conns = []
++
++    async def asyncTearDown(self):
++        for r, w in self.conns:
++            w.close()
++        await self.server.stop()
++
++    async def connect(self, source):
++        pair = await asyncio.open_connection('127.0.0.1', self.port, local_addr=(source, 0))
++        self.conns.append(pair); await asyncio.sleep(.03); return pair
++
++    async def test_capture_is_off_by_default_and_never_alters_bytes(self):
++        a, aw = await self.connect('127.0.0.2'); b, bw = await self.connect('127.0.0.3')
++        aw.write(HELLO_CMD); await aw.drain()
++        self.assertEqual(await asyncio.wait_for(b.readexactly(len(HELLO_CMD)), 2), HELLO_CMD)
++        self.assertEqual(self.state.tap.read(0)['entries'], [])           # nothing stored while off
++
++        self.state.tap.start(0, 5)
++        aw.write(ATTENTION + HELLO_CMD); await aw.drain()
++        self.assertEqual(await asyncio.wait_for(b.readexactly(6 + len(HELLO_CMD)), 2), ATTENTION + HELLO_CMD)
++        bw.write(HELLO_RESP); await bw.drain()
++        self.assertEqual(await asyncio.wait_for(a.readexactly(len(HELLO_RESP)), 2), HELLO_RESP)
++        await asyncio.sleep(.05)
++        data = [e for e in self.state.tap.read(0)['entries'] if e['kind'] == 'data']
++        self.assertEqual(len(data), 2)
++        self.assertTrue(data[0]['forwarded'])
++        self.assertTrue(data[0]['from'].startswith('127.0.0.2:'))
++        self.assertTrue(data[0]['to'][0].startswith('127.0.0.3:'))
++        self.assertTrue(any('Hello command' in f['summary'] for f in data[0]['frames']))
++        self.assertTrue(any('Hello response' in f['summary'] for f in data[1]['frames']))
++        self.assertEqual(data[1]['hex'].replace(' ', ''), HELLO_RESP.hex())
++
++    async def test_unforwarded_traffic_and_events_are_visible(self):
++        self.state.tap.start(0, 5)
++        a, aw = await self.connect('127.0.0.2')
++        aw.write(HELLO_CMD); await aw.drain(); await asyncio.sleep(.05)
++        entries = self.state.tap.read(0)['entries']
++        self.assertTrue(any(e['kind'] == 'event' and 'Client connected' in e['message'] for e in entries))
++        sent = [e for e in entries if e['kind'] == 'data'][0]
++        self.assertFalse(sent['forwarded'])
++        self.assertIn('NOT FORWARDED', self.state.tap.as_text(0))
++
++    async def test_tap_failure_cannot_break_forwarding(self):
++        self.state.tap.start(0, 5)
++        self.state.tap._append = lambda *a, **k: 1 / 0
++        a, aw = await self.connect('127.0.0.2'); b, bw = await self.connect('127.0.0.3')
++        aw.write(b'payload'); await aw.drain()
++        self.assertEqual(await asyncio.wait_for(b.readexactly(7), 2), b'payload')
++
++
++class TapUnitTests(unittest.TestCase):
++    def test_expiry_stop_and_limits(self):
++        tap = TrafficTap([1, 2])
++        tap.start(1, 1); self.assertTrue(tap.active(1))
++        tap._until[1] = 0; self.assertFalse(tap.active(1))
++        self.assertFalse(tap.read(1)['active'])
++        for p in range(10, 18): tap._entries[p] = []; tap.start(p, 1)
++        with self.assertRaises(ValueError): tap.start(2, 1)
++
++    def test_truncation_keeps_true_length(self):
++        tap = TrafficTap([1]); tap.start(1)
++        tap.chunk(1, object(), 'a:1', b'x' * 2000, [])
++        e = tap.read(1)['entries'][0]
++        self.assertEqual(e['length'], 2000); self.assertTrue(e['truncated'])
++        self.assertEqual(len(e['hex'].split()), 512)
++
++
++class ApiTests(unittest.TestCase):
++    def setUp(self):
++        import tempfile
++        from site_config import SiteConfig
++        self.dir = tempfile.TemporaryDirectory(); self.addCleanup(self.dir.cleanup)
++        self.state = SharedState([300, 305])
++        sites = SiteConfig(Path(self.dir.name) / 'sites.json')
++        self.client = create_app(SimpleNamespace(clients=dict.fromkeys([300, 305])), self.state,
++                                 SimpleNamespace(snapshot=lambda: {}), ['127.0.0.0/8'], sites).test_client()
++        self.token = re.search(r'name="control-token" content="([^"]+)"', self.client.get('/').text)[1]
++
++    def test_start_read_download_stop_and_security(self):
++        h = {'X-Control-Token': self.token}
++        self.assertEqual(self.client.post('/api/ports/300/tap/start').status_code, 403)
++        self.assertEqual(self.client.post('/api/ports/999/tap/start', headers=h).status_code, 404)
++        self.assertEqual(self.client.post('/api/ports/300/tap/bogus', headers=h).status_code, 404)
++        self.assertFalse(self.client.get('/api/ports/300/tap').json['active'])
++        self.assertEqual(self.client.post('/api/ports/300/tap/start', headers=h, json={'minutes': 5}).status_code, 200)
++        self.state.tap.chunk(300, object(), '1.2.3.4:5', HELLO_CMD, ['6.7.8.9:1'])
++        body = self.client.get('/api/ports/300/tap').json
++        self.assertTrue(body['active'])
++        self.assertEqual(sum(e['kind'] == 'data' for e in body['entries']), 1)
++        text = self.client.get('/api/ports/300/tap.txt')
++        self.assertIn('Hello command', text.get_data(as_text=True))
++        self.assertIn('attachment', text.headers['Content-Disposition'])
++        self.assertEqual(self.client.get('/api/ports/305/tap').json['entries'], [])   # other ports unaffected
++        self.client.post('/api/ports/300/tap/stop', headers=h)
++        self.assertFalse(self.client.get('/api/ports/300/tap').json['active'])
++        self.assertEqual(self.client.get('/api/ports/300/tap', environ_overrides={'REMOTE_ADDR': '192.0.2.1'}).status_code, 403)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/web_dashboard.py b/web_dashboard.py
+index 3a52b6d..6370542 100644
+--- a/web_dashboard.py
++++ b/web_dashboard.py
+@@ -4,7 +4,7 @@ import ipaddress
+ import logging
+ import secrets
+ import threading
+-from flask import Flask, jsonify, render_template, request, abort
++from flask import Flask, Response, jsonify, render_template, request, abort
+ from waitress import create_server
+ 
+ logger = logging.getLogger('dashboard')
+@@ -95,6 +95,42 @@ def create_app(server, state, monitor, trusted_networks, sites):
+             abort(400)
+         return jsonify({'events': state.get_events(port, since, limit)})
+ 
++    @app.get('/api/ports/<int:port>/tap')
++    def tap_read(port):
++        validated_port(port)
++        try:
++            since = max(0, int(request.args.get('since', 0)))
++            limit = max(1, min(1000, int(request.args.get('limit', 500))))
++        except ValueError:
++            abort(400)
++        return jsonify(state.tap.read(port, since, limit))
++
++    @app.get('/api/ports/<int:port>/tap.txt')
++    def tap_text(port):
++        validated_port(port)
++        response = Response(state.tap.as_text(port), mimetype='text/plain')
++        response.headers['Content-Disposition'] = f'attachment; filename=port-{port}-capture.txt'
++        return response
++
++    @app.post('/api/ports/<int:port>/tap/<action>')
++    def tap_control(port, action):
++        validated_port(port)
++        if action == 'start':
++            payload = request.get_json(silent=True) or {}
++            try:
++                minutes = state.tap.start(port, payload.get('minutes', 10))
++            except (ValueError, TypeError) as exc:
++                return jsonify({'error': str(exc)}), 400
++            state.event(port, 'INFO', f'Traffic capture started for {minutes} minutes by {request.remote_addr}')
++        elif action == 'stop':
++            state.tap.stop(port)
++            state.event(port, 'INFO', f'Traffic capture stopped by {request.remote_addr}')
++        elif action == 'clear':
++            state.tap.clear(port)
++        else:
++            abort(404)
++        return jsonify({'ok': True, 'port': port, 'action': action})
++
+     @app.post('/api/ports/<int:port>/<action>')
+     def control(port, action):
+         validated_port(port)
+-- 
+2.43.0
+
+
+From 96612f9ea6a72e083f7d562c76cb65075bde0082 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 26 Oct 2026 00:25:48 +1000
+Subject: [PATCH 2/2] Add one-command Pi update script
+
+deploy/update.sh: fetch, fast-forward pull, test, then restart; skips the hourly collection window.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0168W1Pnk1JoaDX1V2BRa3By
+---
+ README.md        |  7 +++++++
+ deploy/update.sh | 54 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 61 insertions(+)
+ create mode 100755 deploy/update.sh
+
+diff --git a/README.md b/README.md
+index ead7208..77c1eaf 100644
+--- a/README.md
++++ b/README.md
+@@ -195,3 +195,10 @@ codes (for example in clock and file commands), so treat downloads as sensitive.
+ 
+ API: `GET /api/ports/<port>/tap?since=<id>`, `GET /api/ports/<port>/tap.txt`, and
+ `POST /api/ports/<port>/tap/{start,stop,clear}` (control token required, like other actions).
++
++## Updating the Pi
++
++From the app folder on the Pi: `./deploy/update.sh`. It fetches GitHub, fast-forwards only, installs
++dependencies if `requirements.txt` changed, runs the tests, and only then restarts `tcp-server`.
++A failing test leaves the running service untouched. A restart disconnects every client, so the
++script refuses to run during minutes :00-:09 unless given `--force`.
+diff --git a/deploy/update.sh b/deploy/update.sh
+new file mode 100755
+index 0000000..2bb94ec
+--- /dev/null
++++ b/deploy/update.sh
+@@ -0,0 +1,54 @@
++#!/usr/bin/env bash
++# One-command update for the Pi:  ./deploy/update.sh   (add --force to run during :00-:09)
++# Fetches GitHub, fast-forwards only, runs the tests, then restarts tcp-server.
++# If anything fails before the restart, the running service is left untouched.
++set -euo pipefail
++
++APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++SERVICE="${SERVICE:-tcp-server}"
++PYTHON="${PYTHON:-$APP_DIR/.venv/bin/python}"
++FORCE=0
++[ "${1:-}" = "--force" ] && FORCE=1
++SUDO=""
++[ "$(id -u)" -ne 0 ] && SUDO="sudo"
++
++cd "$APP_DIR"
++
++# Restarting drops every logger and collector, so keep it out of the hourly collection window.
++minute=$((10#$(date +%M)))
++if [ "$minute" -lt 10 ] && [ "$FORCE" -eq 0 ]; then
++  echo "It is :$(printf '%02d' "$minute") - the hourly collection window (:00-:09). Wait until :10 or run with --force."
++  exit 1
++fi
++
++git fetch --quiet origin
++branch="$(git rev-parse --abbrev-ref HEAD)"
++if [ "$(git rev-parse HEAD)" = "$(git rev-parse '@{u}')" ]; then
++  echo "Already up to date on '$branch' ($(git rev-parse --short HEAD)). Nothing to do."
++  exit 0
++fi
++
++echo "Incoming changes on '$branch':"
++git log --oneline 'HEAD..@{u}'
++before_requirements="$(git rev-parse HEAD:requirements.txt)"
++git pull --ff-only --quiet
++echo "Updated to $(git rev-parse --short HEAD)."
++
++if [ "$(git rev-parse HEAD:requirements.txt)" != "$before_requirements" ]; then
++  echo "requirements.txt changed - installing dependencies."
++  "$PYTHON" -m pip install -r requirements.txt
++fi
++
++echo "Running tests..."
++if ! "$PYTHON" -m unittest discover -s tests >/tmp/tcp-server-update-tests.log 2>&1; then
++  tail -n 25 /tmp/tcp-server-update-tests.log
++  echo "Tests FAILED - service NOT restarted (still running the previous code in memory)."
++  echo "To go back:  git reset --hard ORIG_HEAD"
++  exit 1
++fi
++
++echo "Restarting $SERVICE..."
++$SUDO systemctl restart "$SERVICE"
++sleep 2
++$SUDO systemctl --no-pager --lines=5 status "$SERVICE" || true
++echo "Done. Dashboard: http://$(hostname -I | awk '{print $1}'):8888"
+-- 
+2.43.0
+

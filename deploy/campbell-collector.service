@@ -1,0 +1,24 @@
+[Unit]
+Description=Campbell window-aware collection scheduler
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=campbell
+Group=campbell
+WorkingDirectory=/opt/campbell-collector
+ExecStart=/opt/campbell-collector/.venv/bin/python /opt/campbell-collector/scheduler.py --state /var/lib/campbell-collector
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/campbell-collector
+
+[Install]
+WantedBy=multi-user.target

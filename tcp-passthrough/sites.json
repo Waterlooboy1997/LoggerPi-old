@@ -1,0 +1,148 @@
+[
+  {
+    "site": "UTU",
+    "callback_port": 305,
+    "pakbus": 305
+  },
+  {
+    "site": "BSL",
+    "callback_port": 308,
+    "pakbus": 308
+  },
+  {
+    "site": "HUL",
+    "callback_port": 310,
+    "pakbus": 305
+  },
+  {
+    "site": "BUOY319",
+    "callback_port": 319,
+    "pakbus": 319
+  },
+  {
+    "site": "FDF",
+    "callback_port": 350,
+    "pakbus": 350
+  },
+  {
+    "site": "JRD",
+    "callback_port": 351,
+    "pakbus": 351
+  },
+  {
+    "site": "MBR",
+    "callback_port": 352,
+    "pakbus": 352
+  },
+  {
+    "site": "BRD",
+    "callback_port": 353,
+    "pakbus": 353
+  },
+  {
+    "site": "FDU",
+    "callback_port": 354,
+    "pakbus": 354
+  },
+  {
+    "site": "WCZ",
+    "callback_port": 355,
+    "pakbus": 355
+  },
+  {
+    "site": "UBD",
+    "callback_port": 356,
+    "pakbus": 356
+  },
+  {
+    "site": "DIX",
+    "callback_port": 357,
+    "pakbus": 357
+  },
+  {
+    "site": "WFC",
+    "callback_port": 358,
+    "pakbus": 358
+  },
+  {
+    "site": "BSU",
+    "callback_port": 359,
+    "pakbus": 359
+  },
+  {
+    "site": "URO",
+    "callback_port": 360,
+    "pakbus": 360
+  },
+  {
+    "site": "Free",
+    "callback_port": 361,
+    "pakbus": 361
+  },
+  {
+    "site": "BEH",
+    "callback_port": 362,
+    "pakbus": 362
+  },
+  {
+    "site": "MRM",
+    "callback_port": 363,
+    "pakbus": 363
+  },
+  {
+    "site": "ROS",
+    "callback_port": 364,
+    "pakbus": 364
+  },
+  {
+    "site": "LDC1",
+    "callback_port": 365,
+    "pakbus": 365
+  },
+  {
+    "site": "LDC2",
+    "callback_port": 366,
+    "pakbus": 366
+  },
+  {
+    "site": "LDC3",
+    "callback_port": 367,
+    "pakbus": 367
+  },
+  {
+    "site": "Porphyry",
+    "callback_port": 368,
+    "pakbus": 1
+  },
+  {
+    "site": "Grey",
+    "callback_port": 369,
+    "pakbus": 1
+  },
+  {
+    "site": "Broken",
+    "callback_port": 370,
+    "pakbus": 1
+  },
+  {
+    "site": "LDW",
+    "callback_port": 623,
+    "pakbus": 623
+  },
+  {
+    "site": "BUOY721",
+    "callback_port": 721,
+    "pakbus": 721
+  },
+  {
+    "site": "BUOY724",
+    "callback_port": 724,
+    "pakbus": 724
+  },
+  {
+    "site": "UMR",
+    "callback_port": null,
+    "pakbus": null,
+    "note": "PakBus not set; supplied address: digiscapegbrmathewsroad.dyndns.org:6785. Callback port unconfirmed."
+  }
+]

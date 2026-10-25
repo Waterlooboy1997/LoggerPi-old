@@ -1,0 +1,23 @@
+[Unit]
+Description=Campbell administration on port 8889
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=campbell
+Group=campbell
+WorkingDirectory=/opt/campbell-collector
+ExecStart=/opt/campbell-collector/.venv/bin/python /opt/campbell-collector/web.py --state /var/lib/campbell-collector --host 0.0.0.0 --port 8889
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/campbell-collector
+
+[Install]
+WantedBy=multi-user.target

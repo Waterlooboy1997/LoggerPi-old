@@ -1,0 +1,502 @@
+{
+  "generated_at": "2026-06-16T02:22:02.306846",
+  "window_hours": 48,
+  "retention_days": 90,
+  "sites": [
+    {
+      "site": "ROS",
+      "label": "ROS",
+      "status": "ok",
+      "latest_timestamp": "2026-04-14T23:59:00",
+      "time_since": "62 days and 2 hours ago",
+      "latest": {
+        "NNO3": 0.5696,
+        "OPUS_TSSEQ": 90.471,
+        "WATERLEVEL": 0.6708443
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.5696,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 90.471,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.6708443,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "BEH",
+      "label": "BEH",
+      "status": "ok",
+      "latest_timestamp": "2026-04-17T21:59:00",
+      "time_since": "59 days and 4 hours ago",
+      "latest": {
+        "NNO3": 0.0136,
+        "OPUS_TSSEQ": 2.7099,
+        "WATERLEVEL": 1.983993
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.0136,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 2.7099,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 1.983993,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "DIX",
+      "label": "DIX",
+      "status": "ok",
+      "latest_timestamp": "2026-06-16T01:59:00",
+      "time_since": "23 minutes ago",
+      "latest": {
+        "NNO3": 0.2731,
+        "OPUS_TSSEQ": 159.95,
+        "WATERLEVEL": 1.015993
+      },
+      "max_48h": {
+        "NNO3": 0.3545,
+        "OPUS_TSSEQ": 362.82,
+        "WATERLEVEL": 1.134029
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.2731,
+          "max": 0.3545
+        },
+        "OPUS_TSSEQ": {
+          "latest": 159.95,
+          "max": 362.82
+        },
+        "WATERLEVEL": {
+          "latest": 1.015993,
+          "max": 1.134029
+        }
+      },
+      "water_level_trend": "Rising",
+      "trend": "Rising"
+    },
+    {
+      "site": "MRM",
+      "label": "MRM",
+      "status": "ok",
+      "latest_timestamp": "2026-06-16T01:44:00",
+      "time_since": "38 minutes ago",
+      "latest": {
+        "NNO3": 0.1118,
+        "OPUS_TSSEQ": 62.568,
+        "WATERLEVEL": 0.2974572
+      },
+      "max_48h": {
+        "NNO3": 0.3084,
+        "OPUS_TSSEQ": 186.81,
+        "WATERLEVEL": 0.3159126
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.1118,
+          "max": 0.3084
+        },
+        "OPUS_TSSEQ": {
+          "latest": 62.568,
+          "max": 186.81
+        },
+        "WATERLEVEL": {
+          "latest": 0.2974572,
+          "max": 0.3159126
+        }
+      },
+      "water_level_trend": "Rising",
+      "trend": "Rising"
+    },
+    {
+      "site": "UMR",
+      "label": "UMR",
+      "status": "ok",
+      "latest_timestamp": "2026-02-05T10:59:00",
+      "time_since": "130 days and 15 hours ago",
+      "latest": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": 0.7266878
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": null,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": null,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.7266878,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "URO",
+      "label": "URO",
+      "status": "ok",
+      "latest_timestamp": "2026-06-16T00:59:00",
+      "time_since": "1 hour and 23 minutes ago",
+      "latest": {
+        "NNO3": 0.0791,
+        "OPUS_TSSEQ": 26.818,
+        "WATERLEVEL": 0.3877189
+      },
+      "max_48h": {
+        "NNO3": 0.0858,
+        "OPUS_TSSEQ": 28.714,
+        "WATERLEVEL": 0.401807
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.0791,
+          "max": 0.0858
+        },
+        "OPUS_TSSEQ": {
+          "latest": 26.818,
+          "max": 28.714
+        },
+        "WATERLEVEL": {
+          "latest": 0.3877189,
+          "max": 0.401807
+        }
+      },
+      "water_level_trend": "Falling",
+      "trend": "Falling"
+    },
+    {
+      "site": "BSL",
+      "label": "BSL",
+      "status": "ok",
+      "latest_timestamp": "2026-02-14T14:44:00",
+      "time_since": "121 days and 11 hours ago",
+      "latest": {
+        "NNO3": null,
+        "OPUS_TSSEQ": 2179.4,
+        "WATERLEVEL": 0.3813682
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": null,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 2179.4,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.3813682,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "BSU",
+      "label": "BSU",
+      "status": "ok",
+      "latest_timestamp": "2026-06-16T01:44:00",
+      "time_since": "38 minutes ago",
+      "latest": {
+        "NNO3": 0.0179,
+        "OPUS_TSSEQ": 103.95,
+        "WATERLEVEL": 0.2483121
+      },
+      "max_48h": {
+        "NNO3": 0.0942,
+        "OPUS_TSSEQ": 1036.2,
+        "WATERLEVEL": 0.2560363
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.0179,
+          "max": 0.0942
+        },
+        "OPUS_TSSEQ": {
+          "latest": 103.95,
+          "max": 1036.2
+        },
+        "WATERLEVEL": {
+          "latest": 0.2483121,
+          "max": 0.2560363
+        }
+      },
+      "water_level_trend": "Rising",
+      "trend": "Rising"
+    },
+    {
+      "site": "UBD",
+      "label": "UBD",
+      "status": "ok",
+      "latest_timestamp": "2026-04-17T21:59:00",
+      "time_since": "59 days and 4 hours ago",
+      "latest": {
+        "NNO3": 0.2026,
+        "OPUS_TSSEQ": 39.42,
+        "WATERLEVEL": 0.3020341
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.2026,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 39.42,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.3020341,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "FDF",
+      "label": "FDF",
+      "status": "ok",
+      "latest_timestamp": "2026-06-16T01:59:00",
+      "time_since": "23 minutes ago",
+      "latest": {
+        "NNO3": 0.045,
+        "OPUS_TSSEQ": 168.07,
+        "WATERLEVEL": 0.1771599
+      },
+      "max_48h": {
+        "NNO3": 0.1111,
+        "OPUS_TSSEQ": 193.34,
+        "WATERLEVEL": 0.1831668
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.045,
+          "max": 0.1111
+        },
+        "OPUS_TSSEQ": {
+          "latest": 168.07,
+          "max": 193.34
+        },
+        "WATERLEVEL": {
+          "latest": 0.1771599,
+          "max": 0.1831668
+        }
+      },
+      "water_level_trend": "Falling",
+      "trend": "Falling"
+    },
+    {
+      "site": "FDU",
+      "label": "FDU",
+      "status": "ok",
+      "latest_timestamp": "2026-05-31T13:59:00",
+      "time_since": "15 days and 12 hours ago",
+      "latest": {
+        "NNO3": null,
+        "OPUS_TSSEQ": 41.788,
+        "WATERLEVEL": 0.1775299
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": null,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 41.788,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.1775299,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "JRD",
+      "label": "JRD",
+      "status": "ok",
+      "latest_timestamp": "2026-05-10T14:59:00",
+      "time_since": "36 days and 11 hours ago",
+      "latest": {
+        "NNO3": null,
+        "OPUS_TSSEQ": 39.572,
+        "WATERLEVEL": 0.4650447
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": null,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 39.572,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.4650447,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "WCZ",
+      "label": "WCZ",
+      "status": "ok",
+      "latest_timestamp": "2026-06-12T14:59:00",
+      "time_since": "3 days and 11 hours ago",
+      "latest": {
+        "NNO3": null,
+        "OPUS_TSSEQ": 20.205,
+        "WATERLEVEL": 0.1025895
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": null,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 20.205,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.1025895,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    },
+    {
+      "site": "MBR",
+      "label": "MBR",
+      "status": "ok",
+      "latest_timestamp": "2026-06-16T01:59:00",
+      "time_since": "23 minutes ago",
+      "latest": {
+        "NNO3": null,
+        "OPUS_TSSEQ": 136.65,
+        "WATERLEVEL": 0.6403838
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": 344.72,
+        "WATERLEVEL": 0.6903911
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": null,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 136.65,
+          "max": 344.72
+        },
+        "WATERLEVEL": {
+          "latest": 0.6403838,
+          "max": 0.6903911
+        }
+      },
+      "water_level_trend": "Rising",
+      "trend": "Rising"
+    },
+    {
+      "site": "BRD",
+      "label": "BRD",
+      "status": "ok",
+      "latest_timestamp": "2026-04-17T13:59:00",
+      "time_since": "59 days and 12 hours ago",
+      "latest": {
+        "NNO3": 0.0311,
+        "OPUS_TSSEQ": 39.84,
+        "WATERLEVEL": 0.6942827
+      },
+      "max_48h": {
+        "NNO3": null,
+        "OPUS_TSSEQ": null,
+        "WATERLEVEL": null
+      },
+      "metrics": {
+        "NNO3": {
+          "latest": 0.0311,
+          "max": null
+        },
+        "OPUS_TSSEQ": {
+          "latest": 39.84,
+          "max": null
+        },
+        "WATERLEVEL": {
+          "latest": 0.6942827,
+          "max": null
+        }
+      },
+      "water_level_trend": "No data",
+      "trend": "No data"
+    }
+  ]
+}
