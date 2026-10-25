@@ -21,6 +21,9 @@ class ClientInfo:
     last_activity: datetime
     bytes_in: int = 0
     bytes_out: int = 0
+    role: object = None          # 'logger' once it answers the PakBus check, 'asker' for LoggerNet etc.
+    role_detail: str = ''
+    checked_at: object = None    # last PakBus answer from a logger
 
 @dataclass
 class PortState:
@@ -75,6 +78,15 @@ class SharedState:
             state.clients = [c for c in state.clients if c.writer is not writer]
         self.tap.forget(port, writer)
 
+    def set_role(self, port, writer, role, detail='', checked_at=None):
+        with self.lock:
+            for client in self.ports[port].clients:
+                if client.writer is writer:
+                    client.role, client.role_detail = role, detail
+                    if checked_at is not None:
+                        client.checked_at = checked_at
+                    break
+
     def traffic(self, port, writer, received=0, sent=0):
         with self.lock:
             self.total_in += received
@@ -104,7 +116,9 @@ class SharedState:
                                'last_event_time': iso(s.last_event_time),
                                'clients': [{'peer': c.peer, 'ip': c.ip, 'source_port': c.port,
                                             'connected_at': iso(c.connected_at), 'last_activity': iso(c.last_activity),
-                                            'bytes_in': c.bytes_in, 'bytes_out': c.bytes_out} for c in s.clients]})
+                                            'bytes_in': c.bytes_in, 'bytes_out': c.bytes_out,
+                                            'role': c.role, 'role_detail': c.role_detail,
+                                            'checked_at': iso(c.checked_at)} for c in s.clients]})
             return result[0] if port is not None else result
 
     def get_events(self, port=None, since=0, limit=150):

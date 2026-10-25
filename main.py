@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import signal
-from config import HOST, PORTS, COMMAND_PORT, WEB_HOST, WEB_PORT, TRUSTED_NETWORKS
+from config import HOST, PORTS, COMMAND_PORT, WEB_HOST, WEB_PORT, TRUSTED_NETWORKS, PAKBUS_PROBE, PROBE_NODE, PROBE_INTERVAL
 from shared_state import SharedState
 from site_config import SiteConfig
 from tcp_server import TcpDashboardServer
@@ -11,7 +11,8 @@ from web_dashboard import create_app, DashboardThread
 async def main():
     sites = SiteConfig()
     state = SharedState(PORTS)
-    backend = TcpDashboardServer(HOST, PORTS, COMMAND_PORT, state, TRUSTED_NETWORKS)
+    backend = TcpDashboardServer(HOST, PORTS, COMMAND_PORT, state, TRUSTED_NETWORKS, expected_pakbus=sites.pakbus,
+                                 probe_node=PROBE_NODE if PAKBUS_PROBE else None, probe_interval=PROBE_INTERVAL)
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
