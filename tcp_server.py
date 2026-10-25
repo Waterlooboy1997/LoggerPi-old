@@ -50,12 +50,8 @@ class TcpDashboardServer:
         # Remove first so concurrent forwarding cannot target this writer.
         self.clients[port] = [c for c in self.clients[port] if c is not writer]
         self.state.remove_client(port, writer)
-        try:
-            if not writer.is_closing():
-                writer.write(reason.encode() + b'\n')
-                await asyncio.wait_for(writer.drain(), timeout=2)
-        except (Exception, asyncio.CancelledError):
-            pass
+        # The reason goes to the event log only: a data connection carries raw PakBus and
+        # must never receive bytes that did not come from its peer.
         try:
             writer.close()
             await asyncio.wait_for(writer.wait_closed(), timeout=2)

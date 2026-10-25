@@ -7,7 +7,7 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Data ports: 300–379, 6785, 623, 724, 721, 723 (85 total); command port 622.
 - Maximum two accepted clients per data port. A new connection from the same IP evicts existing connections from that IP **on that port** before the capacity check.
 - Binary data is forwarded in both directions between the two clients, without modification or buffering for clients that are absent.
-- Disconnect reason messages remain newline-terminated; remote commands remain `RESET=<port>` with the original response text.
+- Remote commands remain `RESET=<port>` with the original response text.
 - Reset closes connected clients but leaves listening sockets open.
 - Per-port history holds up to 500 events; chunk/payload logging disabled by default. Reject/duplicate counters persist until process restart.
 - Client traffic counters disappear when a client disconnects; new cumulative traffic counters remain until process restart.
@@ -21,6 +21,7 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Port-bind failures abort startup and close previously opened listeners; shutdown cancels tracked handlers.
 - Remote command connections time out after ten seconds without data; source IP must match `TRUSTED_NETWORKS`.
 - A separate Disconnect action closes clients without writing the `Port X reset complete` event.
+- **No text is ever written to a data connection.** The original sent disconnect reasons such as `Duplicate IP detected.` into the socket, putting stray bytes into the PakBus stream. Reasons now go to the event log only and the socket is simply closed.
 
 ## Installation on DietPi
 
