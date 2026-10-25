@@ -22,6 +22,7 @@ Headless migration of the original GUI, now archived in `legacy/app.py`. The act
 - Remote command connections time out after ten seconds without data; source IP must match `TRUSTED_NETWORKS`.
 - A separate Disconnect action closes clients without writing the `Port X reset complete` event.
 - **No text is ever written to a data connection.** The original sent disconnect reasons such as `Duplicate IP detected.` into the socket, putting stray bytes into the PakBus stream. Reasons now go to the event log only and the socket is simply closed.
+- **TCP keepalive** is on for every accepted data socket, so a modem connection that vanishes without closing is dropped in about two minutes instead of holding a slot (see *TCP keepalive* below).
 
 ## Installation on DietPi
 
@@ -41,6 +42,10 @@ TCP_HOST=0.0.0.0
 WEB_HOST=192.168.1.20
 WEB_PORT=8888
 TRUSTED_NETWORKS=127.0.0.1/32,192.168.1.0/24
+# Optional keepalive tuning (seconds / probes), see "TCP keepalive":
+# KEEPALIVE_IDLE=60
+# KEEPALIVE_INTERVAL=15
+# KEEPALIVE_COUNT=4
 ENV
 sudo chmod 644 /etc/default/tcp-server
 sudo cp /opt/tcp-server/systemd/tcp-server.service /etc/systemd/system/
@@ -98,6 +103,7 @@ For a forwarding test, connect two clients from **different source IPs** to the 
 - **Dashboard inaccessible:** verify `WEB_HOST` is assigned to the Pi; verify firewall and routing; test locally with `curl`.
 - **RESET command gets no reply:** command source IP not trusted, firewall restriction or timeout. The command port intentionally does not authenticate beyond IP restriction.
 - **One client immediately disconnects:** both clients may share the same public/NAT IP; this is the original duplicate-IP policy.
+- **`Dead connection reaped` in the event log:** the peer stopped answering TCP keepalive (usually a modem that lost coverage or power) and its slot was freed.
 - **CPU temperature N/A:** DietPi kernel may not expose `/sys/class/thermal/thermal_zone0/temp`.
 
 ## Notes
@@ -202,3 +208,21 @@ From the app folder on the Pi: `./deploy/update.sh`. It fetches GitHub, fast-for
 dependencies if `requirements.txt` changed, runs the tests, and only then restarts `tcp-server`.
 A failing test leaves the running service untouched. A restart disconnects every client, so the
 script refuses to run during minutes :00-:09 unless given `--force`.
+
+## TCP keepalive
+
+Every accepted data socket gets TCP keepalive so the relay notices a peer that disappeared without
+closing (a modem that lost power or coverage). Defaults, settable in `/etc/default/tcp-server`:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KEEPALIVE_IDLE` | `60` | Seconds of silence before the first probe. |
+| `KEEPALIVE_INTERVAL` | `15` | Seconds between probes. |
+| `KEEPALIVE_COUNT` | `4` | Unanswered probes before the connection is dropped. |
+
+`TCP_USER_TIMEOUT` is set to `IDLE + INTERVAL x COUNT` (120 s by default), which also drops a connection
+whose forwarded data stays unacknowledged that long. The event log then shows
+`Dead connection reaped on port N: <peer> stopped answering TCP keepalive` with the disconnect reason
+`Dead connection (keepalive timeout)`. Probes are empty TCP segments handled by the kernel and never
+appear in the PakBus stream or the traffic monitor. They use a little cellular data on idle connections
+(one small probe and reply per minute with the defaults).
