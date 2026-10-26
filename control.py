@@ -9,34 +9,41 @@ import re
 import secrets
 import sqlite3
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
 
 MAX_CONNECTIONS = 4
-ALWAYS = {'ROS', 'MRM', 'WFC', 'BRD', 'JRD'}
 SAFE = re.compile(r'^[A-Za-z0-9_-]+$')
+# A manual history download runs until done or stopped; this only guards a hung worker.
+HISTORY_MAX_SECONDS = 24 * 3600
+# Settings from the old window/budget model. They are dropped on load and never saved again.
+OBSOLETE = ('always_online', 'window_start', 'window_end', 'hourly_attempt_window_minutes',
+            'collection_interval_seconds', 'backfill_enabled', 'backfill_budget_seconds',
+            'backfill_slice_seconds', 'backfill_record_limit', 'pakbus_physical_address',
+            'pakbus_source_physical_address')
 
 
 def defaults(site):
     site = copy.deepcopy(site)
+    if 'hourly_attempts' not in site:
+        # Keep roughly the old behaviour: retries every N seconds until the old closing minute.
+        window = site.get('hourly_attempt_window_minutes', 10)
+        spacing = site.get('retry_interval_seconds', 60)
+        try:
+            site['hourly_attempts'] = max(1, min(60, int(window * 60 // max(1, spacing))))
+        except (TypeError, ValueError):
+            site['hourly_attempts'] = 10
+    for key in OBSOLETE:
+        site.pop(key, None)
     site.setdefault('id', site.get('name', ''))
     site.setdefault('label', site.get('name', ''))
     site.setdefault('enabled', False)
     site.setdefault('timezone', 'Australia/Brisbane')
-    site.setdefault('always_online', site['name'].upper() in ALWAYS)
-    site.setdefault('window_start', 0)
-    site.setdefault('window_end', 30 if site['name'].upper() in {'FDF', 'FDU'} else 15)
-    site.setdefault('collection_interval_seconds', 3600)
     site.setdefault('retry_interval_seconds', 60)
-    site.setdefault('hourly_attempt_window_minutes', 10)
     site.setdefault('timeout_seconds', 10)
     site.setdefault('pakbus_source', 2050)
     site.setdefault('recent_budget_seconds', 60)
-    site.setdefault('backfill_budget_seconds', 90)
-    site.setdefault('backfill_slice_seconds', 45)
-    site.setdefault('backfill_record_limit', 1000)
-    site.setdefault('backfill_enabled', False)
     site.setdefault('overlap_seconds', 3600)
     site.setdefault('tables', ['Measurement'])
     site.setdefault('port', 0)
@@ -59,17 +66,16 @@ def issues(site):
         errors.append('Specify safe table names.')
     if len(set(site.get('tables', []))) != len(site.get('tables', [])):
         errors.append('Tables must be unique.')
-    for key, low, high in [('window_start', 0, 59), ('window_end', 1, 60),
-                           ('timeout_seconds', 1, 60), ('collection_interval_seconds', 1, 604800),
-                           ('retry_interval_seconds', 1, 86400), ('hourly_attempt_window_minutes', 1, 60), ('recent_budget_seconds', 5, 600),
-                           ('backfill_budget_seconds', 0, 3600), ('backfill_slice_seconds', 5, 300),
-                           ('backfill_record_limit', 1, 100000), ('overlap_seconds', 0, 86400),
-                           ('pakbus_source', 0, 4095)]:
+    numbers_ok = True
+    for key, low, high in [('timeout_seconds', 1, 60), ('retry_interval_seconds', 10, 3600),
+                           ('hourly_attempts', 1, 60), ('recent_budget_seconds', 5, 600),
+                           ('overlap_seconds', 0, 86400), ('pakbus_source', 0, 4095)]:
         v = site.get(key)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not low <= v <= high:
             errors.append(f'{key} must be between {low} and {high}.')
-    if site.get('window_start', 0) >= site.get('window_end', 0):
-        errors.append('Window start must be before end within the same hour.')
+            numbers_ok = False
+    if numbers_ok and (site['hourly_attempts'] - 1) * site['retry_interval_seconds'] >= 3600:
+        errors.append('Every hourly attempt must start within the hour: reduce attempts or the time between them.')
     if not site.get('host') or any(c.isspace() for c in str(site.get('host', ''))):
         errors.append('Host is required and cannot contain spaces.')
     for key, high in [('port', 65535), ('pakbus_address', 4095)]:
@@ -78,42 +84,24 @@ def issues(site):
             errors.append(f'{key} is missing or invalid.')
     if not str(site.get('expected_serial', '')).strip():
         errors.append('Expected logger serial is required.')
-    for key in ('pakbus_physical_address', 'pakbus_source_physical_address', 'security_code'):
-        v = site.get(key)
-        if v is not None and (not isinstance(v, int) or not 0 <= v <= (65535 if key == 'security_code' else 4095)):
-            errors.append(f'{key} is invalid.')
-    for key in ('enabled', 'always_online', 'backfill_enabled'):
-        if not isinstance(site.get(key), bool):
-            errors.append(f'{key} must be true or false.')
+    v = site.get('security_code')
+    if v is not None and (not isinstance(v, int) or not 0 <= v <= 65535):
+        errors.append('security_code is invalid.')
+    if not isinstance(site.get('enabled'), bool):
+        errors.append('enabled must be true or false.')
     return errors
 
 
-def availability(site, now=None):
-    """UTC epoch bounds; hourly windows are evaluated in the logger timezone."""
+def routine_schedule(site, now=None):
+    """Automatic collection starts at the top of each hour in the logger timezone.
+
+    Failed attempts retry within the same hour; any automatic work for an hour ends
+    when the next hour starts.
+    """
     now = time.time() if now is None else now
     local = datetime.fromtimestamp(now, ZoneInfo(site['timezone']))
-    hour = local.replace(minute=0, second=0, microsecond=0)
-    if site['always_online']:
-        return {'open': True, 'next': now, 'deadline': now + site['recent_budget_seconds'], 'bucket': int(now // 3600)}
-    opening = hour + timedelta(minutes=site['window_start'])
-    closing = hour + timedelta(minutes=site['window_end'], seconds=-20)
-    opened = opening.timestamp() <= now < closing.timestamp()
-    if now >= closing.timestamp():
-        opening += timedelta(hours=1)
-    return {'open': opened, 'next': now if opened else opening.timestamp(),
-            'deadline': closing.timestamp(), 'bucket': int(hour.timestamp() // 3600)}
-
-
-def routine_schedule(site, now=None):
-    """Automatic collection is aligned to the hour, never to last completion."""
-    now=time.time() if now is None else now
-    local=datetime.fromtimestamp(now,ZoneInfo(site['timezone']))
-    cycle=local.replace(minute=0,second=0,microsecond=0).timestamp()
-    end=cycle+site.get('hourly_attempt_window_minutes',10)*60
-    window=availability(site,now)
-    return {'cycle':cycle,'deadline':min(end,window['deadline']) if not site['always_online'] else end,
-            'open':window['open'] and now<end,
-            'next':max(now,window['next']) if now<end and window['next']<end else cycle+3600}
+    cycle = local.replace(minute=0, second=0, microsecond=0).timestamp()
+    return {'cycle': cycle, 'deadline': cycle + 3600, 'next': cycle + 3600}
 
 
 class Control:
@@ -174,7 +162,8 @@ class Control:
         config['sites']=[defaults(site) for site in config['sites']]
         return config
 
-    def save_config(self, config, revision):
+    def save_config(self, config, revision, membership=False):
+        """Save settings. Adding or removing sites needs membership=True (see add_site/remove_site)."""
         config = copy.deepcopy(config)
         if config.get('max_connections',MAX_CONNECTIONS)!=MAX_CONNECTIONS:
             raise ValueError('Concurrent connections are fixed at 4.')
@@ -200,6 +189,8 @@ class Control:
             current = json.loads(row[0]) if row else {'revision': 0}
             if current['revision'] != revision:
                 raise ValueError('Configuration changed elsewhere. Reload before saving.')
+            if not membership and {s['id'] for s in current.get('sites', [])} != ids:
+                raise ValueError('Sites can only be added or removed with Add site or Remove site.')
             config['revision'] = revision + 1
             config['output_directory'] = str(out)
             encoded = json.dumps(config)
@@ -216,11 +207,41 @@ class Control:
             pass
         return config
 
+    def add_site(self, site, confirm):
+        """Add one new site. It always starts with routine collection off."""
+        site = defaults(dict(site, enabled=False))
+        site['id'] = site['label'] = site['name']
+        if confirm != site['name']:
+            raise ValueError('Type the new site code exactly to confirm adding it.')
+        config = self.config()
+        if any(s['name'].lower() == site['name'].lower() or s['id'] == site['id'] for s in config['sites']):
+            raise ValueError(f"A site called {site['name']} already exists.")
+        config['sites'].append(site)
+        return self.save_config(config, config['revision'], membership=True)
+
+    def remove_site(self, identifier, confirm, revision):
+        """Remove one site's configuration. Collected files and journals are kept."""
+        config = self.config()
+        site = next((s for s in config['sites'] if s['id'] == identifier), None)
+        if site is None:
+            raise ValueError('Unknown site.')
+        if confirm != site['name']:
+            raise ValueError(f"Type {site['name']} exactly to confirm removal.")
+        if site['enabled']:
+            raise ValueError('Turn off routine collection before removing this site.')
+        with self.connect() as db:
+            if db.execute("SELECT 1 FROM jobs WHERE site=? AND state IN ('queued','running')", (identifier,)).fetchone():
+                raise ValueError('Stop this site\'s current work before removing it.')
+        config['sites'] = [s for s in config['sites'] if s['id'] != identifier]
+        return self.save_config(config, revision, membership=True)
+
     def enqueue(self, site, kind, tab=None, override=False, automatic=False, scheduled_for=None):
         if kind not in ('recent', 'backfill', 'test'):
             raise ValueError('Unknown action.')
-        if issues(site) or (not site.get('enabled') and (automatic or kind=='backfill')):
-            raise ValueError('Review connection details first; routine collection must be enabled for automatic work or backfill.')
+        if issues(site) or (not site.get('enabled') and automatic):
+            raise ValueError('Review connection details first; routine collection must be enabled for automatic work.')
+        if kind == 'backfill' and not self.stream(site['id'], tab)['baseline']:
+            raise ValueError('Run Collect now once first, so history knows where recent data starts.')
         if tab and tab not in site['tables']:
             raise ValueError('Unknown table.')
         with self.connect() as db:
@@ -274,7 +295,6 @@ class Control:
         config=self.config()
         now=time.time()
         records=last_records(config['output_directory'])
-        windows={s['id']:availability(s,now) for s in config['sites']}
         routines={s['id']:routine_schedule(s,now) for s in config['sites']}
         errors={s['id']:issues(s) for s in config['sites']}
         summaries={}
@@ -283,8 +303,12 @@ class Control:
             heartbeat=db.execute('SELECT stamp FROM heartbeat WHERE id=1').fetchone()
             for site in config['sites']:
                 identifier=site['id']
-                row=db.execute('SELECT id,kind,state,message,automatic,scheduled_for FROM jobs WHERE site=? ORDER BY id DESC LIMIT 1',(identifier,)).fetchone()
+                row=db.execute('SELECT id,kind,tab,state,message,automatic,scheduled_for FROM jobs WHERE site=? ORDER BY id DESC LIMIT 1',(identifier,)).fetchone()
                 latest=dict(row) if row else None
+                retrying=False
+                if latest and latest['automatic'] and latest['scheduled_for']==routines[identifier]['cycle']:
+                    used=db.execute("SELECT COUNT(*) FROM jobs WHERE site=? AND tab IS ? AND kind='recent' AND automatic=1 AND scheduled_for=? AND state IN ('failed','limited','interrupted')",(identifier,latest['tab'],latest['scheduled_for'])).fetchone()[0]
+                    retrying=used<site['hourly_attempts']
                 active=[dict(r) for r in db.execute("SELECT id,tab,kind,state,phase,received FROM jobs WHERE site=? AND state IN ('queued','running') ORDER BY state DESC,id",(identifier,))]
                 tables=[]
                 primary='Measurement' if 'Measurement' in site['tables'] else site['tables'][0]
@@ -297,12 +321,12 @@ class Control:
                     item.update(name=table,last_success=success[0] if success else None,last_record=records.get((site['name'],table),{}).get('timestamp'))
                     tables.append(item)
                     if table==primary:primary_success=success[0] if success else None
-                summaries[identifier]=summarize(site,latest,tables,active,errors[identifier],routines[identifier],windows[identifier],records,primary_success)
+                summaries[identifier]=summarize(site,latest,tables,active,errors[identifier],retrying,records,primary_success)
         jobs=self.jobs()
         for job in jobs:job.pop('snapshot',None)
         return {'config':redact(config),'jobs':jobs,'streams':streams,'sites':summaries,
                 'scheduler_online':bool(heartbeat and now-heartbeat[0]<10),'now':now,
-                'windows':windows,'issues':errors,'routines':routines}
+                'issues':errors,'routines':routines}
 
 
 def redact(value):
@@ -357,8 +381,7 @@ def backup_preview(data, reference):
             notes.append('No exact reference-folder mapping; review site identity.')
         schedule = next((e for e in device.iter('setting') if e.get('prim-retry-interval')), None)
         if schedule is not None:
-            site['collection_interval_seconds'] = max(1, int(schedule.get('interval', '3600000'))//1000)
-            site['retry_interval_seconds'] = max(1, int(schedule.get('prim-retry-interval', '300000'))//1000)
+            site['retry_interval_seconds'] = min(3600, max(10, int(schedule.get('prim-retry-interval', '300000'))//1000))
         tables = [e.get('name') for e in device.iter('collect-area')
                   if any(x.get('id') == '2' and x.text == '1' for x in e.iter('setting'))]
         if tables:

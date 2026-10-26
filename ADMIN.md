@@ -6,11 +6,11 @@ Open **http://localhost:8889** on this computer, or `http://<server-LAN-IP>:8889
 
 The main page is now one alphabetical row per site: **Site, Status, Last success, Last record, Collect now, Expand**. Search and the Needs attention filter are at the top. The sidebar, cards, availability diagrams, import controls and workspace/activity pages are removed.
 
-Expand a site to edit its settings inline, enable/disable routine collection, connect manually, control backfill or stop its active attempts. Table results are listed underneath. Recent events and technical logs stay collapsed unless opened. **Clear displayed history only hides finished events in this browser**; it does not delete jobs, logs, collection data or live status.
+Expand a site to edit its settings inline, enable/disable routine collection, connect manually, download its history or stop its active attempts. Table results are listed underneath. Recent events and technical logs stay collapsed unless opened. **Clear displayed history only hides finished events in this browser**; it does not delete jobs, logs, collection data or live status.
 
 Last record is an actual committed record timestamp (with its record number on hover/focus), not the time range a collection checked. Measurement is the primary table if configured; otherwise the first configured table is used. Last success refers to that primary table's latest successful recent collection. Other table failures are still shown as Partial failure. A successful connection check does not invent a measurement timestamp or a data-collection success.
 
-Connected/Downloading stages come from worker callbacks. Connection capacity is fixed at **4** in the backend and is not editable from the webpage or configuration API. The hourly/retry rules below are unchanged. Data and credentials remain in the existing state directory.
+Connected/Downloading stages come from worker callbacks. Connection capacity is fixed at **4** in the backend and is not editable from the webpage or configuration API. Data and credentials remain in the existing state directory.
 
 ## First login
 
@@ -27,7 +27,7 @@ python web.py --state state --host 0.0.0.0 --port 8889
 python scheduler.py --state state
 ```
 
-Use the same absolute `--state` directory for both processes. On first use, `python web.py --state state --import-settings settings.json` can seed legacy settings; migrated sites start disabled. The existing `app.py serve --state state` also uses the new window-aware supervisor. The old `once`, `inspect`, explicit dates, and `--all` commands remain advanced manual tools and do not apply webpage scheduling restrictions. Prefer webpage jobs for routine operation.
+Use the same absolute `--state` directory for both processes. On first use, `python web.py --state state --import-settings settings.json` can seed legacy settings; migrated sites start disabled. The existing `app.py serve --state state` also uses the same hourly supervisor. The old `once`, `inspect`, explicit dates, and `--all` commands remain advanced manual tools and do not apply webpage scheduling restrictions. Prefer webpage jobs for routine operation.
 
 To recover a lost password, stop the web service, then run `python web.py --state state --reset-password`. This invalidates sessions and creates a fresh one-time setup code. Restart the service normally afterward.
 
@@ -35,27 +35,32 @@ The source of truth is `state/admin.sqlite3`, not the original root `settings.js
 
 ## Collection policy
 
-| Sites | Default availability in Brisbane time |
-|---|---|
-| ROS, MRM, WFC, BRD, JRD | Unrestricted; connection failures still retry |
-| FDF, FDU | Minutes 00–30 each hour |
-| Others | Minutes 00–15 each hour |
+**Automatic collection starts at the top of every hour** (`:00` in each site's timezone) for every enabled site. Each site has two settings:
 
-**Automatic collection is aligned to the start of every hour for every enabled site.** Attempts are eligible from `:00` until `:10`, in each site's timezone. A successful table waits for the next hour. Failures retry on one-minute boundaries while time remains; an attempt already running is never overlapped. No automatic attempt continues beyond `:10`. An expired waiting automatic request is skipped, then rescheduled at the next hour. Restarting during the ten-minute period catches up; restarting afterward waits for the next hour.
+- **Attempts each hour** (default 10)
+- **Seconds between attempts** (default 60, 10–3600): how long to wait after a failed attempt before trying again
 
-The physical online windows above remain editable and can shorten automatic availability if a site powers off sooner. Four connections can run at once, and one at a time per shared gateway (normally host:port). All sites are scheduled at `:00`; with more than four sites, some must wait for one of the four connections to become free. That waiting list is what the activity view calls the queue. Sites using one radio/router can be assigned the same gateway group.
+A successful collection waits for the next hour. Failed attempts retry until one succeeds or the hour's attempts are used up. Every attempt must be able to start within the hour, so (attempts − 1) × seconds between them must be under 3600. Automatic work for an hour never runs into the next hour. A request still waiting for a free connection when the hour ends is skipped. If the scheduler restarts (or a site is enabled) partway through an hour, it only starts that hour's first attempt while attempts × spacing from `:00` has not yet passed; otherwise it waits for the next hour. An attempt already running is never overlapped.
 
-**Connect now** is a manual identity/clock/table check, then disconnects. **Collect now** manually downloads recent records. Both work outside the automatic timetable and physical-window assumptions, and can be used while routine collection is disabled if the connection details are valid. They take priority over waiting automatic requests, but never exceed four concurrent connections or overlap another connection to the same site/gateway. They do not interrupt jobs already running. LEE still requires configuration before either action is available.
+Four connections can run at once, and one at a time per shared gateway (normally host:port). With more than four sites, some wait for a free connection. Sites using one radio/router can be assigned the same gateway group.
 
-Recent collection uses a separate watermark per table, initially the previous hour, then resumes with an overlap. Connection setup has a hard **20-second maximum**, including PakBus response/identity verification. Only one handshake is sent; the library reconnect/ping retry loop is removed. A manual connection request is not retried automatically. After successful connection, downloads retain their separate 60-second maximum, shortened by the automatic/physical closing deadline. Scheduled one-minute retries until :10 remain separate from retries inside a connection attempt. The site editor exposes retry spacing (60 seconds) and automatic closing minute (10); all current sites have those values. The legacy collection-interval field is retained for compatibility, but automatic cadence is now fixed to the hourly clock.
+**Connect now** is a manual identity/clock/table check, then disconnects. **Collect now** manually downloads recent records. Both can be used at any time, including while routine collection is disabled, if the connection details are valid. They take priority over waiting automatic requests, but never exceed four concurrent connections or overlap another connection to the same site/gateway. They do not interrupt jobs already running.
 
-Historical work must be enabled with Backfill. It waits for a recent baseline and yields to eligible current work. Defaults cap each site to 1,000 received records and 90 seconds per hour, in slices of at most 45 seconds; overlaps conservatively count against the record allowance. All limits are editable.
+Recent collection uses a separate watermark per table, initially the previous hour, then resumes with an overlap. Connection setup has a hard **20-second maximum**, including PakBus response/identity verification. Only one handshake is sent. After a successful connection, an automatic or manual recent download has a 60-second maximum, which is also cut short by the end of the hour for automatic attempts.
 
-Backfill seeks the first available retained records, then limits each slice's accepted date coverage to at most one day after that first record. Empty periods are skipped by the next successful ranged query rather than issuing thousands of empty daily requests. Partial slices checkpoint committed timestamps; complete slices advance verified coverage. Historical checkpoints never advance recent-data watermarks. New data always retains priority. No full-history restart is required after a dropped connection.
+**Download history** is a manual, one-off action. It downloads everything the logger still holds from before the point where recent collection started, in one continuous connection, until it finishes or you press **Stop history download**. There are no hourly record/time budgets and nothing else disconnects it, apart from a 24-hour safety limit for a hung worker. While it runs, that site's hourly collection waits (one connection per site), and it uses one of the four connection slots. Run **Collect now** (or let one hourly collection succeed) first, because history needs to know where recent data starts. Every received batch is checkpointed, so a stopped or dropped download resumes where it left off. Once history is complete the button is disabled.
 
-Every worker has its own hard deadline, including if the scheduler disappears. Restart recovery reserves unfinished workers' site/capacity until their recorded deadline expires, preventing duplicate connections. A single supervisor lock prevents multiple schedulers using the same state. The original collector's site lock and transactional journal continue to protect downloaded records.
+### Adding and removing sites
 
-Pause history cancels queued historical work and requests cancellation of a running historical job. Cancel from Activity stops an individual job; committed records remain. Configuration changes cancel obsolete queued snapshots; already running work keeps its original configuration until completion or explicit cancellation.
+Settings saves can't add or remove sites. **Add a site…** (below the list) opens a form; to confirm, you type the new site code. New sites always start with routine collection off. Use Connect now, then turn routine collection on.
+
+**Remove site** is in a collapsed section at the bottom of each expanded site. It requires routine collection to be off and no queued or running work, and you must type the site code. Removing a site deletes only its settings. Its files, schemas and journal are kept.
+
+### Removed settings
+
+The online-from/until minutes, the hourly closing minute, "almost always online", the physical PakBus source/destination addresses, the legacy collection interval and the history budget settings (records/seconds per hour, job seconds) no longer exist. Old values are dropped automatically the next time settings are loaded and saved. The number of attempts each hour is derived from the old closing minute ÷ retry spacing (10 for the current `:10`/60 s setup). Packet timeout, the 60-second download limit and overlap keep their defaults but are no longer shown in the editor.
+
+Every worker has its own hard deadline, including if the scheduler disappears. Restart recovery reserves unfinished workers' site/capacity until their recorded deadline expires, preventing duplicate connections. A single supervisor lock prevents multiple schedulers using the same state. The original collector's site lock and transactional journal continue to protect downloaded records. Configuration changes cancel obsolete queued snapshots; running work keeps its original configuration until completion or explicit cancellation.
 
 ## Output and boundaries
 

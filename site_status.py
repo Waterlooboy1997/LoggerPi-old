@@ -41,7 +41,7 @@ def last_records(output_directory):
     return result
 
 
-def summarize(site,latest,tables,active,config_issues,routine,window,records,last_success):
+def summarize(site,latest,tables,active,config_issues,retrying,records,last_success):
     primary='Measurement' if 'Measurement' in site['tables'] else site['tables'][0]
     failed=[t for t in tables if t['state'] in FAILURES]
     succeeded=[t for t in tables if t['state']=='success']
@@ -56,7 +56,7 @@ def summarize(site,latest,tables,active,config_issues,routine,window,records,las
     elif not site['enabled']:status='Disabled'
     elif failed and succeeded:status='Partial failure'
     elif failed or (latest and latest['state'] in FAILURES):
-        status='Retrying' if routine['open'] and latest and latest.get('automatic') and latest.get('scheduled_for')==routine['cycle'] else 'Failed'
+        status='Retrying' if retrying else 'Failed'
     elif any(t['state']=='success' for t in tables) or (latest and latest['state']=='success'):status='OK'
     if latest and latest['state'] in FAILURES and not latest.get('automatic'):detail=short_error(latest.get('message'))
     elif failed:detail=short_error(failed[0].get('message'))

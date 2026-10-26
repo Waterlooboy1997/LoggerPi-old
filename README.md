@@ -1,6 +1,6 @@
 # Campbell collector for DietPi
 
-> **New administration interface:** Open http://localhost:8889. See [ADMIN.md](ADMIN.md) for setup, site editing, availability windows, job controls and the updated two-service DietPi deployment. `app.py serve` now delegates to the window-aware supervisor. Legacy one-shot commands below remain advanced manual tools and bypass dashboard windows.
+> **New administration interface:** Open http://localhost:8889. See [ADMIN.md](ADMIN.md) for setup, site editing, hourly attempts, history downloads, job controls and the updated two-service DietPi deployment. Legacy one-shot commands below remain advanced manual tools and bypass the dashboard schedule.
 
 A small Python service, with JSON settings and a local SQLite journal. The supplied ROS source files are never modified by the default configuration. Python 3.9 or newer is required.
 
