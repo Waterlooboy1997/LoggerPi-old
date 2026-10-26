@@ -7,7 +7,7 @@ import unittest
 from zoneinfo import ZoneInfo
 from unittest.mock import patch
 from werkzeug.security import generate_password_hash
-from control import Control, defaults, availability, backup_preview, issues
+from control import Control, defaults, backup_preview, issues, routine_schedule
 from scheduler import Scheduler
 from web import create_app
 import app as collector
@@ -30,20 +30,36 @@ class Base(unittest.TestCase):
     def tearDown(self):self.temp.cleanup()
     def config(self,sites):
         conf=self.c.config();conf['sites']=sites
-        return self.c.save_config(conf,conf['revision'])
+        return self.c.save_config(conf,conf['revision'],membership=True)
 
 
 class WindowTests(unittest.TestCase):
-    def test_groups_and_guards(self):
-        for name in ['ROS','MRM','WFC','BRD','JRD']:self.assertTrue(site(name)['always_online'])
-        self.assertEqual(site('FDU')['window_end'],30)
-        self.assertEqual(site('BEH')['window_end'],15)
-        s=site('BEH')
-        self.assertTrue(availability(s,epoch(2,0,0))['open'])
-        self.assertTrue(availability(s,epoch(2,0,10))['open'])
-        self.assertTrue(availability(s,epoch(2,14,39))['open'])
-        self.assertFalse(availability(s,epoch(2,14,40))['open'])
-        self.assertEqual(availability(s,epoch(2,20))['next'],epoch(3,0,0))
+    def test_old_window_settings_are_dropped(self):
+        old=defaults(dict(name='BEH',always_online=False,window_start=0,window_end=15,hourly_attempt_window_minutes=10,
+                          retry_interval_seconds=60,backfill_enabled=True,backfill_record_limit=1000,pakbus_physical_address=1))
+        for key in ('always_online','window_start','window_end','hourly_attempt_window_minutes','backfill_enabled','backfill_record_limit','pakbus_physical_address'):
+            self.assertNotIn(key,old)
+        self.assertEqual(old['hourly_attempts'],10)
+        self.assertEqual(defaults(dict(name='ROS',retry_interval_seconds=300))['hourly_attempts'],2)
+        self.assertEqual(defaults(dict(name='ROS',hourly_attempts=3))['hourly_attempts'],3)
+
+    def test_attempts_must_start_within_the_hour(self):
+        self.assertFalse(issues(site(hourly_attempts=60,retry_interval_seconds=60)))
+        self.assertTrue(issues(site(hourly_attempts=61)))
+        self.assertTrue(issues(site(hourly_attempts=7,retry_interval_seconds=600)))
+        self.assertTrue(issues(site(retry_interval_seconds=5)))
+
+    def test_schedule_is_the_local_hour(self):
+        r=routine_schedule(site(),epoch(2,47,10))
+        self.assertEqual(r['cycle'],epoch(2,0));self.assertEqual(r['deadline'],epoch(3,0))
+
+    def test_restart_catch_up_only_while_attempts_would_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            c=Control(d);conf=c.config();conf['sites']=[site(hourly_attempts=5,retry_interval_seconds=60)];c.save_config(conf,0,membership=True)
+            sch=Scheduler(c,popen=FakeProc)
+            sch.tick(epoch(2,5,30));self.assertEqual(len(sch.active),0)
+            with patch('control.time.time',return_value=epoch(2,4)):sch.tick(epoch(2,4))
+            self.assertEqual(len(sch.active),1);sch.close()
 
 
 class ConfigTests(Base):
@@ -74,7 +90,7 @@ class ConfigTests(Base):
         s=backup_preview(b'archive'+xml,Path(self.temp.name))[0]
         self.assertFalse(s['enabled']);self.assertEqual(s['port'],364)
         self.assertIsNone(s['pakbus_address'])
-        self.assertTrue(s['always_online'])
+        self.assertNotIn('always_online',s)
         with self.assertRaises(ValueError):backup_preview(b'bad',self.temp.name)
 
 
@@ -101,15 +117,17 @@ class SchedulerTests(Base):
         sch.tick(now+61)
         self.assertTrue(any(j['state']=='limited' for j in self.c.jobs()))
         sch.close()
-    def test_window_queue_and_shared_gateway(self):
+    def test_shared_gateway_one_at_a_time(self):
         sch=self.make([site('BEH',gateway='radio'),site('BSL',gateway='radio')])
-        j=self.c.enqueue(site('BEH',gateway='radio'),'test')
-        sch.tick(epoch(2,30));self.assertEqual(len(sch.active),0)
-        with patch('control.time.time',return_value=epoch(3,1)):sch.tick(epoch(3,1))
+        with patch('control.time.time',return_value=epoch(3,0)):sch.tick(epoch(3,0))
         self.assertEqual(len(sch.active),1)
+        next(iter(sch.active.values()))[0].code=0
+        with patch('control.time.time',return_value=epoch(3,0,30)):sch.tick(epoch(3,0,30))
+        self.assertEqual(len(sch.active),1)
+        self.assertEqual({j['site'] for j in self.c.jobs() if j['state'] in ('success','running')},{'BEH','BSL'})
         sch.close()
-    def test_recent_before_history_and_budget(self):
-        s=site(backfill_enabled=True);sch=self.make([s])
+    def test_recent_before_history(self):
+        s=site();sch=self.make([s])
         recent=self.c.enqueue(s,'recent','Measurement')
         job=next(j for j in self.c.jobs() if j['id']==recent)
         self.c.checkpoint(job,baseline='2026-10-24 00:00:00')
@@ -119,28 +137,39 @@ class SchedulerTests(Base):
         with patch('control.time.time',return_value=now):sch.tick(now)
         self.assertEqual(next(iter(sch.active.values()))[2]['kind'],'recent')
         sch.close()
-    def test_history_hourly_budget_and_restart_reservation(self):
-        s=site(backfill_enabled=True);sch=self.make([s]);now=epoch(2,1)
+    def test_history_runs_until_done_and_restart_reservation(self):
+        s=site();sch=self.make([s]);now=epoch(2,1)
         j=self.c.enqueue(s,'recent','Measurement',automatic=True,scheduled_for=epoch(2,0));job=next(jb for jb in self.c.jobs() if jb['id']==j)
         self.c.checkpoint(job,baseline='2026-10-24 00:00:00')
         self.c.checkpoint(job,complete=True,coverage='2026-10-25 00:00:00')
         with self.c.connect() as db:
             db.execute("UPDATE jobs SET state='success',finished=? WHERE id=?",(now,j))
-            db.execute('INSERT INTO budget VALUES(?,?,90,0)',('ROS',int(now//3600)))
         self.c.enqueue(s,'backfill','Measurement')
-        sch.tick(now);self.assertEqual(len(sch.active),0)
-        with self.c.connect() as db:
-            db.execute("UPDATE jobs SET state='running',started=?,deadline=? WHERE kind='backfill'",(now,now+45))
-        with patch('scheduler.time.time',return_value=now):sch.recover()
+        sch.tick(now)
+        history=next(iter(sch.active.values()))[2]
+        self.assertEqual(history['kind'],'backfill')
+        self.assertGreaterEqual(history['deadline'],now+12*3600)
+        sch.tick(epoch(3,0,30))
+        self.assertEqual(list(sch.active),[history['id']])
+        self.assertTrue(any(jb['automatic'] and jb['state']=='queued' for jb in self.c.jobs()))
+        sch.active.clear()
+        with patch('scheduler.time.time',return_value=epoch(3,1)):sch.recover()
         self.assertEqual(len(sch.orphans),1)
-        sch.tick(now+1);self.assertEqual(len(sch.active),0)
+        sch.tick(epoch(3,1,1));self.assertEqual(len(sch.active),0)
         sch.close()
 
-    def test_cancel_and_window_closing_deadline(self):
-        s=site('BEH',window_end=5);sch=self.make([s]);now=epoch(2,4,20)
+    def test_history_needs_a_recent_baseline(self):
+        s=site();self.config([s])
+        with self.assertRaisesRegex(ValueError,'Collect now'):self.c.enqueue(s,'backfill','Measurement')
+
+    def test_cancel_and_hour_end_deadline(self):
+        s=site('BEH');sch=self.make([s]);now=epoch(2,59,20)
+        with self.c.connect() as db:
+            for minute in (0,1):
+                db.execute("INSERT INTO jobs(site,kind,tab,state,created,finished,snapshot,automatic,scheduled_for) VALUES('BEH','recent','Measurement','failed',?,?,'{}',1,?)",(epoch(2,minute),epoch(2,minute,20),epoch(2,0)))
         with patch('control.time.time',return_value=now):sch.tick(now)
         job=next(iter(sch.active.values()))[2]
-        self.assertEqual(job['deadline'],epoch(2,4,40))
+        self.assertEqual(job['deadline'],epoch(3,0))
         with self.c.connect() as db:db.execute('UPDATE jobs SET cancel=1 WHERE id=?',(job['id'],))
         sch.tick(now+1)
         self.assertEqual(self.c.jobs()[0]['state'],'cancelled')
@@ -161,17 +190,18 @@ class SchedulerTests(Base):
         sch.close()
 
     def test_failure_retry_limit(self):
-        s=site('BEH');sch=self.make([s])
-        for minute in range(10):
-            now=epoch(2,minute)
+        s=site('BEH',hourly_attempts=3,retry_interval_seconds=120);sch=self.make([s])
+        now=epoch(2,0)
+        for attempt in range(3):
             with patch('control.time.time',return_value=now):sch.tick(now)
-            self.assertEqual(len(sch.active),1)
+            self.assertEqual(len(sch.active),1,attempt)
             next(iter(sch.active.values()))[0].code=1
-            sch.tick(now+1)
-            sch.tick(now+59)
-            self.assertEqual(len(sch.active),0)
-        sch.tick(epoch(2,10));self.assertEqual(len(sch.active),0)
-        self.assertEqual(len([j for j in self.c.jobs() if j['state']=='failed']),10)
+            sch.tick(now+20)
+            sch.tick(now+20+119);self.assertEqual(len(sch.active),0)
+            now=now+20+120
+        with patch('control.time.time',return_value=now):sch.tick(now)
+        sch.tick(epoch(2,40));self.assertEqual(len(sch.active),0)
+        self.assertEqual(len([j for j in self.c.jobs() if j['state']=='failed']),3)
         with patch('control.time.time',return_value=epoch(3,0)):sch.tick(epoch(3,0))
         self.assertEqual(len(sch.active),1)
         sch.close()
@@ -196,15 +226,15 @@ class SchedulerTests(Base):
         sch.close()
 
     def test_four_connection_slots_and_expired_hourly_requests(self):
-        sites=[site('SITE'+str(i),port=1000+i) for i in range(5)]
-        sch=self.make(sites);conf=self.c.config();conf['max_connections']=4;self.c.save_config(conf,conf['revision'])
-        now=epoch(2,9,40)
+        sites=[site('SITE'+str(i),port=1000+i,hourly_attempts=60) for i in range(5)]
+        sch=self.make(sites)
+        now=epoch(2,59,30)
         with patch('control.time.time',return_value=now):sch.tick(now)
         self.assertEqual(len(sch.active),4)
-        self.assertTrue(all(j['deadline']==epoch(2,10) for p,h,j in sch.active.values()))
-        sch.tick(epoch(2,10))
-        self.assertEqual(len(sch.active),0)
+        self.assertTrue(all(j['deadline']==epoch(3,0) for p,h,j in sch.active.values()))
+        sch.tick(epoch(3,0))
         self.assertTrue(any(j['state']=='skipped' for j in self.c.jobs()))
+        self.assertTrue(all(j['scheduled_for']==epoch(3,0) for p,h,j in sch.active.values()))
         sch.close()
 
 
@@ -267,10 +297,28 @@ class WebTests(Base):
         self.assertEqual(self.c.config()['sites'][0]['security_code'],1234)
         self.assertNotIn('security_code',response.get_json()['sites'][0])
 
-    def test_remove_retains_data(self):
-        headers=self.auth();marker=self.c.root/'collected';marker.mkdir();(marker/'data.dat').write_text('retain')
-        conf=self.client.get('/api/status').get_json()['config'];conf['sites']=[]
-        self.assertEqual(self.client.put('/api/config',json=conf,headers=headers).status_code,200)
+    def test_add_and_remove_need_typed_confirmation(self):
+        headers=self.auth()
+        conf=self.client.get('/api/status').get_json()['config']
+        added=dict(conf['sites'][0],name='NEW',id='NEW',port=999,enabled=True)
+        self.assertEqual(self.client.put('/api/config',json=dict(conf,sites=conf['sites']+[added]),headers=headers).status_code,400)
+        self.assertEqual(self.client.put('/api/config',json=dict(conf,sites=[]),headers=headers).status_code,400)
+        self.assertEqual(self.client.post('/api/sites',json={'site':added,'confirm':'new'},headers=headers).status_code,400)
+        self.assertEqual(self.client.post('/api/sites',json={'site':dict(added,name='ros'),'confirm':'ros'},headers=headers).status_code,400)
+        self.assertEqual(self.client.post('/api/sites',json={'site':added,'confirm':'NEW'},headers=headers).status_code,201)
+        new=next(s for s in self.c.config()['sites'] if s['id']=='NEW')
+        self.assertFalse(new['enabled'])
+
+        marker=self.c.root/'collected';marker.mkdir();(marker/'data.dat').write_text('retain')
+        revision=self.c.config()['revision']
+        self.assertIn('Turn off',self.client.post('/api/sites/ROS/remove',json={'confirm':'ROS','revision':revision},headers=headers).get_json()['error'])
+        conf=self.c.config();conf['sites'][0]['enabled']=False;self.c.save_config(conf,conf['revision']);revision+=1
+        self.c.enqueue(self.c.config()['sites'][0],'test')
+        self.assertIn('Stop',self.client.post('/api/sites/ROS/remove',json={'confirm':'ROS','revision':revision},headers=headers).get_json()['error'])
+        with self.c.connect() as db:db.execute("UPDATE jobs SET state='cancelled'")
+        self.assertEqual(self.client.post('/api/sites/ROS/remove',json={'confirm':'RO','revision':revision},headers=headers).status_code,400)
+        self.assertEqual(self.client.post('/api/sites/ROS/remove',json={'confirm':'ROS','revision':revision},headers=headers).status_code,200)
+        self.assertEqual([s['id'] for s in self.c.config()['sites']],['NEW'])
         self.assertEqual((marker/'data.dat').read_text(),'retain')
 
 

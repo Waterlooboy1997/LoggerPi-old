@@ -35,11 +35,8 @@ def run(state, identifier):
         if not stream['baseline']:
             raise ValueError('Collect recent records before starting backfill.')
         start = datetime.fromisoformat(stream['history']) - timedelta(seconds=1) if stream['history'] else datetime(1990,1,1)
+        # One continuous download up to where recent collection began; each batch checkpoints.
         end = datetime.fromisoformat(stream['baseline'])
-        limits.update(history_seek=True, max_records=site['backfill_record_limit'])
-        with control.connect() as db:
-            budget = db.execute('SELECT records FROM budget WHERE site=? AND bucket=?', (site['id'], job['started']//3600)).fetchone()
-        limits['max_records'] = max(1, site['backfill_record_limit'] - (budget[0] if budget else 0))
     connection_watchdog=None
     def progress(phase):
         nonlocal connection_watchdog

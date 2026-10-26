@@ -130,20 +130,24 @@ def create_app(state='state'):
         if site is None:raise ValueError('Unknown site.')
         data=request.get_json();kind=data.get('kind');override=data.get('override_window',False)
         if not isinstance(override,bool):raise ValueError('Window override must be true or false.')
-        if kind=='backfill':
-            conf=control.config();next(s for s in conf['sites'] if s['id']==identifier)['backfill_enabled']=True
-            control.save_config(conf,conf['revision'])
-            site=next(s for s in control.config()['sites'] if s['id']==identifier)
         ids=[control.enqueue(site,kind,None,override)] if kind=='test' else [control.enqueue(site,kind,t,override) for t in site['tables']]
         return jsonify(jobs=ids),202
 
-    @app.post('/api/sites/<identifier>/pause-history')
-    def pause(identifier):
-        conf=control.config();site=next((s for s in conf['sites'] if s['id']==identifier),None)
-        if site is None:raise ValueError('Unknown site.')
-        site['backfill_enabled']=False;control.save_config(conf,conf['revision'])
+    @app.post('/api/sites')
+    def add_site():
+        data=request.get_json()
+        site=copy.deepcopy(data.get('site') or {});site.pop('has_security_code',None)
+        return jsonify(redact(control.add_site(site,data.get('confirm')))),201
+
+    @app.post('/api/sites/<identifier>/remove')
+    def remove_site(identifier):
+        data=request.get_json()
+        return jsonify(redact(control.remove_site(identifier,data.get('confirm'),data.get('revision'))))
+
+    @app.post('/api/sites/<identifier>/stop-history')
+    def stop_history(identifier):
         with control.connect() as db:
-            db.execute("UPDATE jobs SET cancel=1 WHERE site=? AND kind='backfill' AND state='running'",(identifier,))
+            db.execute("UPDATE jobs SET cancel=1,state=CASE WHEN state='queued' THEN 'cancelled' ELSE state END,message='History download stopped' WHERE site=? AND kind='backfill' AND state IN ('queued','running')",(identifier,))
         return jsonify(ok=True)
 
     @app.post('/api/jobs/<int:identifier>/cancel')
@@ -168,7 +172,7 @@ def create_app(state='state'):
         if row is None:raise ValueError('Unknown revision.')
         saved=json.loads(row[0])
         expected=request.get_json().get('revision')
-        return jsonify(redact(control.save_config(saved,expected)))
+        return jsonify(redact(control.save_config(saved,expected,membership=True)))
 
     @app.get('/api/revisions')
     def revisions():
@@ -191,7 +195,7 @@ def main():
             p.error('Settings already exist; use the webpage to edit.')
         original=json.loads(Path(args.import_settings).read_text(encoding='utf-8-sig'))
         conf=control.config();conf['sites']=[defaults(dict(s,enabled=False)) for s in original['sites']]
-        control.save_config(conf,0)
+        control.save_config(conf,0,membership=True)
     app=create_app(args.state)
     print(f'Collector administration: http://localhost:{args.port}',flush=True)
     if not control.get('password_hash'):print(f'Initial setup code: {control.root / "setup-code.txt"}',flush=True)
